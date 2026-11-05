@@ -107,6 +107,31 @@ export async function enviarEmail(env, r) {
   }
 }
 
+/* Notificação no celular pelo app ntfy (grátis, sem conta). O nome do tópico funciona como senha: fica em segredo. */
+export async function enviarNtfy(env, r) {
+  if (!env.NTFY_TOPICO) return null;
+  try {
+    const resp = await fetch('https://ntfy.sh/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic: env.NTFY_TOPICO,
+        title: r.status === 'pedido' ? `Pedido de reserva: ${quando(r)}` : r.status === 'conflito' ? `Conflito de reserva ${dataBR(r.inicio)}` : `Reserva paga: ${quando(r)}`,
+        message: textoAlerta(r),
+        tags: [r.status === 'conflito' ? 'warning' : r.status === 'pedido' ? 'calendar' : 'moneybag'],
+        priority: r.status === 'conflito' ? 5 : 4,
+        click: `${(env.SITE_URL || 'https://aconchegoeventos.aconchego-site.workers.dev').replace(/\/$/, '')}/admin.html`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) console.error('ntfy:', resp.status, (await resp.text()).slice(0, 200));
+    return resp.ok;
+  } catch (e) {
+    console.error('ntfy:', e?.message);
+    return false;
+  }
+}
+
 export async function enviarWhatsApp(env, texto) {
   if (!env.CALLMEBOT_PHONE || !env.CALLMEBOT_APIKEY) return null;
   try {

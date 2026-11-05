@@ -8,7 +8,7 @@ import {
   lerConfig, lerAjustes, lerOcupacao, montarDia, calcularPreco, situacao, novoId, CONFIG_PADRAO,
 } from './regras.js';
 import {
-  modoMP, criarPreferencia, buscarPagamento, assinaturaValida, iguais, enviarEmail, enviarWhatsApp, textoAlerta, titulo, quando,
+  modoMP, criarPreferencia, buscarPagamento, assinaturaValida, iguais, enviarEmail, enviarWhatsApp, textoAlerta, titulo, quando, enviarNtfy,
 } from './servicos.js';
 
 /* Sem Access Token do Mercado Pago, a reserva vira um pedido pelo WhatsApp do salão (a data fica guardada por HORAS_PEDIDO) */
@@ -163,9 +163,9 @@ async function avisar(env, r) {
   const valor = `R$ ${Number(r.valor_pago ?? r.valor).toFixed(2).replace('.', ',')}`;
   await env.DB.prepare('INSERT INTO avisos (chave, em, tipo, texto, reserva_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT(chave) DO NOTHING')
     .bind(chave, Date.now(), r.status, `${titulo(r)}\n${r.nome} · ${quando(r)} · ${valor}${r.whatsapp ? ` · WhatsApp ${r.whatsapp}` : ''}`, r.id).run();
-  const [email, whats] = await Promise.all([enviarEmail(env, r), enviarWhatsApp(env, textoAlerta(r))]);
-  console.log('alertas', r.id, { email, whats });
-  if (email !== true && whats !== true && (email === false || whats === false)) {
+  const canais = await Promise.all([enviarEmail(env, r), enviarWhatsApp(env, textoAlerta(r)), enviarNtfy(env, r)]);
+  console.log('alertas', r.id, canais);
+  if (!canais.includes(true) && canais.includes(false)) {
     await env.DB.prepare('DELETE FROM alertas WHERE chave = ?').bind(chave).run();
     throw new Error('Nenhum alerta foi enviado'); // o MP reenvia mais tarde
   }

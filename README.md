@@ -113,6 +113,7 @@ Cada um com `wrangler secret put NOME` (cola o valor quando pedir) ou no painel:
 | `EMAIL_REMETENTE` | Opcional. Ex.: `Reservas Aconchego <reservas@seudominio.com.br>` |
 | `CALLMEBOT_PHONE` | WhatsApp da dona com país e DDD, ex.: `+5562994127148` |
 | `CALLMEBOT_APIKEY` | Chave que o CallMeBot manda no WhatsApp |
+| `NTFY_TOPICO` | Tópico secreto do app ntfy (notificação no celular, sem conta). Inscreva-se nele no app |
 | `SITE_URL` | Opcional. Endereço público, se usar domínio próprio |
 
 Segredos valem na hora, sem novo deploy. Nenhuma chave fica no código.
