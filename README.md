@@ -61,10 +61,10 @@ O céu, as estrelas e a palmeira de fundo ficam logo abaixo, em `body`, `body::b
 
 ## Reservas
 
-Reserva online com pagamento pelo **Mercado Pago (Checkout Pro: Pix e cartão)**, hospedada de graça na **Cloudflare** (Workers + banco D1).
+Reserva online com pagamento pelo **Mercado Pago (Checkout Pro: Pix e cartão)**, hospedada de graça no **Cloudflare Pages** (API em `worker/`, banco D1).
 
-- **Site com reservas e painel**: https://aconchegoeventos.aconchego-site.workers.dev
-- **Painel da dona**: https://aconchegoeventos.aconchego-site.workers.dev/admin.html
+- **Site com reservas e painel**: https://aconchegoeventos.pages.dev
+- **Painel da dona**: https://aconchegoeventos.pages.dev/admin.html
 - A versão do GitHub Pages continua no ar e usa a mesma agenda (a API aceita chamadas de `ccpaschoal.github.io`).
 
 **Preços** (editáveis no admin, seção *Preços e regras*)
@@ -92,14 +92,14 @@ Precisa do Node e do Wrangler (`npm i -g wrangler`, depois `wrangler login`). Na
 ```
 npm run deploy        # monta a pasta dist e publica na Cloudflare
 npm run banco         # aplica mudanças do banco (pasta migrations), se houver
-npm run dev           # roda tudo no computador (http://127.0.0.1:8787); antes, uma vez: npm run banco:local
+npm run dev           # roda tudo no computador (http://127.0.0.1:8788); antes, uma vez: npm run banco:local
 ```
 
 Para testar localmente, crie um arquivo `.dev.vars` (fica fora do git) com `ADMIN_PASSWORD=...` e as outras chaves.
 
 ### Segredos (chaves)
 
-Cada um com `wrangler secret put NOME` (cola o valor quando pedir) ou no painel: *Cloudflare → Workers & Pages → aconchegoeventos → Settings → Variables and Secrets*.
+Cada um com `wrangler pages secret put NOME --project-name aconchegoeventos` (cola o valor quando pedir) ou no painel: *Cloudflare → Workers & Pages → aconchegoeventos (Pages) → Settings → Variables and Secrets*.
 
 | Nome | Para quê |
 |---|---|
@@ -124,7 +124,7 @@ Segredos valem na hora, sem novo deploy. Nenhuma chave fica no código.
 1. https://www.mercadopago.com.br/developers/panel/app com a conta que vai receber → *Criar aplicação* (pagamentos online, Checkout Pro).
 2. *Credenciais de produção* → **Access Token** → `MP_ACCESS_TOKEN`.
 3. *Credenciais de teste* → **Access Token** → `MP_ACCESS_TOKEN_TESTE`. Se pedir, crie em *Contas de teste* um vendedor e um comprador.
-4. *Webhooks → Configurar notificações*: URL `https://aconchegoeventos.aconchego-site.workers.dev/api/webhook-mp?source_news=webhooks` (produção e teste), evento **Pagamentos**, salvar. Copie a **Assinatura secreta** → `MP_WEBHOOK_SECRET`.
+4. *Webhooks → Configurar notificações*: URL `https://aconchegoeventos.pages.dev/api/webhook-mp?source_news=webhooks` (produção e teste), evento **Pagamentos**, salvar. Copie a **Assinatura secreta** → `MP_WEBHOOK_SECRET`.
 
 **Resend (e-mail)**
 1. Conta em https://resend.com, **de preferência com o e-mail da dona** (sem domínio próprio a Resend só entrega para o e-mail da conta).
@@ -141,7 +141,7 @@ Segredos valem na hora, sem novo deploy. Nenhuma chave fica no código.
 2. Numa **janela anônima**, reserve uma data. No Mercado Pago, entre com o **comprador de teste** (se pedir) e pague com cartão de teste:
    - Mastercard `5031 4332 1540 6351` · Visa `4235 6477 2802 5682` · CVV `123` · validade `11/30`
    - Titular `APRO` (aprovado), `CONT` (pendente) ou `OTHE` (recusado) · CPF `12345678909`
-3. Aprovado: volta para a página de sucesso, a reserva aparece como *Paga* no admin e chegam o e-mail e o WhatsApp. Logs: *Cloudflare → Workers & Pages → aconchegoeventos → Logs* (ou `wrangler tail`).
+3. Aprovado: volta para a página de sucesso, a reserva aparece como *Paga* no admin e chegam o e-mail e o WhatsApp. Logs: *Cloudflare → Workers & Pages → aconchegoeventos → Deployments → View details → Functions*.
 4. Tudo certo: troque `MP_MODO` para `producao`.
 
 ---

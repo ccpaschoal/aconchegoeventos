@@ -120,7 +120,7 @@ export async function enviarNtfy(env, r) {
         message: textoAlerta(r),
         tags: [r.status === 'conflito' ? 'warning' : r.status === 'pedido' ? 'calendar' : 'moneybag'],
         priority: r.status === 'conflito' ? 5 : 4,
-        click: `${(env.SITE_URL || 'https://aconchegoeventos.aconchego-site.workers.dev').replace(/\/$/, '')}/admin.html`,
+        click: `${(env.SITE_URL || 'https://aconchegoeventos.pages.dev').replace(/\/$/, '')}/admin.html`,
       }),
       signal: AbortSignal.timeout(10000),
     });
