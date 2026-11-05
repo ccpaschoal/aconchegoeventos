@@ -1,0 +1,14 @@
+{
+  "name": "aconchego-site",
+  "private": true,
+  "type": "module",
+  "description": "Site do Aconchego Festas e Eventos com reservas online (Netlify Functions + Netlify Blobs + Mercado Pago)",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.7.13",
+    "mercadopago": "^3.6.1",
+    "resend": "^6.37.0"
+  }
+}

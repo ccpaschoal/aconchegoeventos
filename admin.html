@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Agenda · Aconchego Festas e Eventos</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#070B10">
+  <link rel="icon" href="assets/img/favicon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles/style.css?v=20261105b">
+  <link rel="stylesheet" href="styles/agenda.css?v=20261105b">
+  <script src="scripts/agenda.js?v=20261105b" defer></script>
+  <script src="scripts/admin.js?v=20261105b" defer></script>
+</head>
+<body class="pagina admin">
+<header class="topo">
+  <div class="topo-in">
+    <a class="marca" href="./" aria-label="Aconchego Festas e Eventos, ir para o site">
+      <img src="assets/img/logo.png" alt="" width="700" height="350">
+    </a>
+    <nav class="nav" aria-label="Painel">
+      <button class="btn btn-linha c-branco btn-mini" id="sair" type="button" hidden>Sair</button>
+    </nav>
+  </div>
+</header>
+
+<main id="conteudo">
+  <section class="screen marinho adm-login" id="login" aria-labelledby="login-titulo">
+    <form class="pilha pilha-16" id="form-login">
+      <p class="eyebrow c-claro">Área da dona</p>
+      <h1 class="display h2" id="login-titulo">Agenda de <span class="sub">reservas</span></h1>
+      <label class="campo"><span>Senha</span><input type="password" name="senha" autocomplete="current-password" required></label>
+      <p class="agenda-msg" role="alert" id="login-msg"></p>
+      <div><button class="btn btn-branco" type="submit">Entrar</button></div>
+    </form>
+  </section>
+
+  <div id="painel" class="pilha" hidden style="gap:20px">
+    <section class="screen branco reservar" aria-labelledby="t-agenda">
+      <div class="reservar-topo">
+        <div class="pilha">
+          <p class="eyebrow c-azul">1 · Agenda</p>
+          <h1 class="display h2 c-marinho" id="t-agenda">Abrir e fechar <span class="sub sub-azul">datas</span></h1>
+        </div>
+        <p class="nota">Clique num dia para abrir ou fechar, mudar o preço só daquela data (feriado) ou bloquear uma reserva fechada pelo WhatsApp.</p>
+      </div>
+      <div class="agenda">
+        <div class="agenda-cal">
+          <div id="adm-cal"></div>
+          <ul class="cal-legenda" aria-label="Legenda do calendário">
+            <li><span class="cal-amostra is-disponivel"></span>Aberto</li>
+            <li><span class="cal-amostra is-reservado"></span>Reservado</li>
+            <li><span class="cal-amostra is-pendente"></span>Aguardando pagamento</li>
+            <li><span class="cal-amostra is-indisponivel"></span>Fechado</li>
+            <li><span class="cal-amostra is-excecao"></span>Data com ajuste</li>
+          </ul>
+        </div>
+        <form class="agenda-painel adm-dia" id="adm-dia" novalidate>
+          <p class="agenda-dia">Escolha um dia no calendário.</p>
+        </form>
+      </div>
+    </section>
+
+    <section class="screen nevoa reservar" aria-labelledby="t-reservas">
+      <div class="adm-filtro">
+        <div class="pilha">
+          <p class="eyebrow c-azul">2 · Reservas</p>
+          <h2 class="display h2 c-marinho" id="t-reservas">Quem <span class="sub sub-azul">reservou</span></h2>
+        </div>
+        <label class="campo"><span>Mostrar</span>
+          <select id="adm-filtro">
+            <option value="proximas">Próximas (pagas, aguardando e bloqueios)</option>
+            <option value="paga">Pagas</option>
+            <option value="pendente">Aguardando pagamento</option>
+            <option value="bloqueio">Bloqueios manuais</option>
+            <option value="todas">Todas (inclui canceladas e expiradas)</option>
+          </select>
+        </label>
+      </div>
+      <div class="adm-tabela-box" id="adm-reservas"></div>
+    </section>
+
+    <section class="screen branco reservar" aria-labelledby="t-precos">
+      <div class="reservar-topo">
+        <div class="pilha">
+          <p class="eyebrow c-azul">3 · Padrões</p>
+          <h2 class="display h2 c-marinho" id="t-precos">Períodos e <span class="sub sub-azul">preços</span></h2>
+        </div>
+        <p class="nota">Valem para todos os dias. Para mudar só uma data (feriado), use o calendário acima. Período com preço zero não aparece no site.</p>
+      </div>
+      <form class="adm-config" id="adm-config" novalidate>
+        <div class="adm-periodos-cfg" id="cfg-periodos"></div>
+        <div><button class="btn btn-linha c-azul btn-mini" type="button" id="cfg-add">+ Adicionar período</button></div>
+        <fieldset class="adm-semana" id="cfg-semana">
+          <legend class="agenda-passo">Dias da semana abertos</legend>
+        </fieldset>
+        <div class="adm-numeros">
+          <label class="campo"><span>Antecedência mínima (dias)</span><input type="number" name="antecedenciaDias" min="0" max="365" step="1"></label>
+          <label class="campo"><span>Agenda aberta até (meses)</span><input type="number" name="mesesAFrente" min="1" max="24" step="1"></label>
+          <label class="campo"><span>Máximo de convidados</span><input type="number" name="maxConvidados" min="1" max="5000" step="1"></label>
+        </div>
+        <p class="agenda-msg" role="alert" id="cfg-msg"></p>
+        <p class="adm-ok" role="status" id="cfg-ok"></p>
+        <div><button class="btn btn-azul" type="submit">Salvar padrões</button></div>
+      </form>
+    </section>
+  </div>
+</main>
+</body>
+</html>

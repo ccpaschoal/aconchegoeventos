@@ -1,6 +1,33 @@
-# Site estático: o Netlify publica a pasta como está, sem build.
+# Site estático + Netlify Functions (reservas). Não há build do site: o Netlify só instala as dependências
+# das functions (package.json) e publica a pasta como está.
 [build]
   publish = "."
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  node_bundler = "esbuild"
+
+# /api/disponibilidade, /api/criar-reserva, /api/admin → functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Código das functions e arquivos de projeto não precisam ficar acessíveis no site
+[[redirects]]
+  from = "/netlify/*"
+  to = "/index.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/package.json"
+  to = "/index.html"
+  status = 404
+  force = true
 
 [[headers]]
   for = "/assets/*"
@@ -12,3 +39,10 @@
   [headers.values]
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/admin.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"
+    X-Frame-Options = "DENY"
