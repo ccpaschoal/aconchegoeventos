@@ -29,7 +29,7 @@ aconchego-site/
 
 **Cores e fundo** (`styles/style.css`, bloco `:root` no topo):
 ```css
---azul: #1876D6;
+--azul: #166EC8;   /* ajustado para contraste WCAG AA */
 --marinho: #002E45;
 --fundo: #070B10;   /* fundo atrás das telas */
 ```
