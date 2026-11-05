@@ -154,3 +154,7 @@
 .adm-avisos b { font-family: var(--f-display); font-weight: 800; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
 .adm-tabela td.acoes { display: flex; gap: 6px; flex-wrap: wrap; }
 .adm-filtro { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; justify-content: space-between; }
+
+/* Link discreto para o painel, no rodapé da última tela */
+.rodape .rodape-admin { flex-basis: 100%; font-weight: 600; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; opacity: .55; }
+.rodape .rodape-admin:hover, .rodape .rodape-admin:focus-visible { opacity: 1; }
