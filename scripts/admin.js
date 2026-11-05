@@ -4,6 +4,8 @@
   const { dataLonga, reais, esc, hojeLocal, SEMANA } = window.AconchegoData;
   const $ = (s, el = document) => el.querySelector(s);
   const CHAVE = 'aconchego-admin';
+  // Aberto pelo GitHub Pages, o painel fala com a API da Cloudflare
+  const API = location.hostname.endsWith('github.io') ? 'https://aconchegoeventos.aconchego-site.workers.dev/api' : '/api';
   const SITUACAO = {
     paga: 'Paga', pedido: 'Pedido pelo WhatsApp', confirmada: 'Confirmada', pendente: 'Aguardando pagamento', bloqueio: 'Bloqueio', conflito: 'Conflito: devolver',
     cancelada: 'Cancelada', expirada: 'Expirada', estornada: 'Estornada', substituida: 'Substituída',
@@ -28,7 +30,7 @@
   let cal = null;
 
   async function api(metodo, corpo, mes) {
-    const r = await fetch(`/api/admin${mes ? `?mes=${mes}` : ''}`, {
+    const r = await fetch(`${API}/admin${mes ? `?mes=${mes}` : ''}`, {
       method: metodo,
       headers: { Authorization: `Bearer ${encodeURIComponent(senha)}`, ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
       body: corpo ? JSON.stringify(corpo) : undefined,

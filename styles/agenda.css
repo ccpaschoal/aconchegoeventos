@@ -96,7 +96,9 @@
 /* ── Páginas avulsas (retorno do pagamento e admin): sem o modo garrafas ── */
 .pagina main { max-width: 760px; }
 .pagina.admin main { max-width: 1120px; }
-.pagina .screen { overflow: visible; }
+/* Nada pode passar da largura da tela no celular (overflow-x: clip corta sem criar rolagem) */
+.pagina .screen { overflow: visible; overflow-x: clip; }
+.pagina main { max-width: min(760px, 100%); }
 .retorno { display: grid; gap: 16px; justify-items: start; }
 .retorno-icone { width: 56px; height: 56px; display: grid; place-items: center; background: var(--azul); color: var(--branco); }
 .retorno-icone svg { width: 30px; height: 30px; }
@@ -128,7 +130,7 @@
 .selo.is-confirmada { background: var(--marinho); color: var(--branco); }
 .selo.is-conflito { background: #B3261E; color: var(--branco); }
 .btn-mini { padding: .6em .9em; font-size: .7rem; }
-.adm-tabela-box { width: 100%; overflow-x: auto; background: var(--branco); }
+.adm-tabela-box { position: relative; width: 100%; max-width: 100%; overflow-x: auto; background: var(--branco); -webkit-overflow-scrolling: touch; }
 .adm-tabela { width: 100%; min-width: 760px; border-collapse: collapse; font-size: .86rem; }
 .adm-tabela th { text-align: left; padding: 10px 12px; background: var(--marinho); color: var(--branco);
   font-family: var(--f-display); font-weight: 800; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; }

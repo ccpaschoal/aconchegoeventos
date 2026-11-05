@@ -18,7 +18,7 @@ const HORAS_PEDIDO = 24;
 const ORIGENS = ['https://ccpaschoal.github.io']; // versão do GitHub Pages também usa esta API
 const cors = (req) => {
   const o = req.headers.get('Origin');
-  return ORIGENS.includes(o) ? { 'Access-Control-Allow-Origin': o, 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type', Vary: 'Origin' } : {};
+  return ORIGENS.includes(o) ? { 'Access-Control-Allow-Origin': o, 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', Vary: 'Origin' } : {};
 };
 const OCUPADO = 'Essa data acabou de ser reservada por outra pessoa. Escolha outra data.';
 
@@ -375,7 +375,9 @@ export default {
     const rota = ROTAS[`${req.method} ${url.pathname.replace(/\/$/, '')}`];
     if (!rota) return json({ erro: 'Não encontrado.' }, 404);
     try {
-      return await rota(req, env, ctx);
+      const resp = await rota(req, env, ctx);
+      for (const [k, v] of Object.entries(cors(req))) resp.headers.set(k, v);
+      return resp;
     } catch (e) {
       console.error(url.pathname, e?.stack || e);
       return json({ erro: 'Erro no servidor. Tente de novo.' }, 500, cors(req));
