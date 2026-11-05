@@ -72,13 +72,13 @@
     avisos();
   }
 
-  async function recarregar() {
+  async function recarregar(manterEditor = false) {
     dados = await api('GET', null, cal.mes);
     cal.atualizar();
     tabela();
     avisos();
     const d = diaAberto && dados.dias.find((x) => x.data === diaAberto);
-    if (d) editor(d);
+    if (d && !manterEditor) editor(d);
   }
 
   /* ── 1. Calendário + editor do dia ── */
@@ -255,7 +255,7 @@
     try { await api('POST', { acao: 'lidos' }); await recarregar(); } catch { /* tenta de novo depois */ }
   });
   // Confere novidades a cada 2 minutos enquanto o painel está aberto
-  setInterval(() => { if (senha && !document.hidden && cal) recarregar().catch(() => {}); }, 120000);
+  setInterval(() => { if (senha && !document.hidden && cal) recarregar(true).catch(() => {}); }, 120000);
 
   /* ── 3. Preços e regras ── */
   const cfgForm = $('#adm-config');

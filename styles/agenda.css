@@ -158,3 +158,4 @@
 /* Link discreto para o painel, no rodapé da última tela */
 .rodape .rodape-admin { flex-basis: 100%; font-weight: 600; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; opacity: .55; }
 .rodape .rodape-admin:hover, .rodape .rodape-admin:focus-visible { opacity: 1; }
+.adm-painel { gap: 20px; }

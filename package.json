@@ -5,6 +5,7 @@
   "description": "Site do Aconchego Festas e Eventos com reservas online (Cloudflare Workers + D1 + Mercado Pago)",
   "scripts": {
     "build": "node build.mjs",
+    "test": "node --test tests/",
     "dev": "node build.mjs && wrangler pages dev",
     "banco:local": "wrangler d1 migrations apply aconchego --local",
     "banco": "wrangler d1 migrations apply aconchego --remote",

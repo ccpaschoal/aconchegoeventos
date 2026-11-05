@@ -14,6 +14,15 @@ import {
 /* Sem Access Token do Mercado Pago, a reserva vira um pedido pelo WhatsApp do salão (a data fica guardada por HORAS_PEDIDO) */
 const temMP = (env) => !!(modoMP(env) === 'teste' ? env.MP_ACCESS_TOKEN_TESTE : env.MP_ACCESS_TOKEN);
 const HORAS_PEDIDO = 24;
+const MAX_ABERTOS_POR_PESSOA = 3;     // pedidos/pagamentos em aberto ao mesmo tempo, por conexão
+const MAX_TENTATIVAS_SENHA = 10;      // erros de senha do painel em 15 minutos
+
+/* Resumo do IP (SHA-256): serve para limitar abusos sem guardar o endereço de ninguém */
+async function ipHash(req) {
+  const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'local';
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`aconchego:${ip}`));
+  return [...new Uint8Array(bytes)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 const ORIGENS = ['https://ccpaschoal.github.io']; // versão do GitHub Pages também usa esta API
 const cors = (req) => {
@@ -68,10 +77,20 @@ async function criarReserva(req, env, ctx) {
   const hoje = hojeSP(agora);
   const fim = somaDias(inicio, nDias - 1);
   const datas = intervalo(inicio, fim);
+  const ip = await ipHash(req);
 
-  // A mesma pessoa tentando de novo (voltou do erro do cartão) não fica presa na própria reserva pendente
+  // Evita que alguém segure a agenda inteira com pedidos falsos
+  const abertos = (await db.prepare(`SELECT COUNT(*) AS n FROM reservas WHERE ip_hash = ? AND status IN ('pendente', 'pedido') AND expira_em > ?`)
+    .bind(ip, agora).first()).n;
+
+  // A mesma pessoa tentando de novo (voltou do erro do cartão) não fica presa na própria reserva pendente.
+  // Precisa ser o mesmo WhatsApp E a mesma conexão, para ninguém derrubar o pedido de outra pessoa digitando o número dela.
   const { results: minhas } = await db.prepare(`SELECT DISTINCT r.id FROM reservas r JOIN ocupacao o ON o.reserva_id = r.id
-    WHERE r.status IN ('pendente', 'pedido') AND r.whatsapp = ? AND o.expira_em > ? AND o.data BETWEEN ? AND ?`).bind(whatsapp, agora, inicio, fim).all();
+    WHERE r.status IN ('pendente', 'pedido') AND r.whatsapp = ? AND r.ip_hash = ? AND o.expira_em > ? AND o.data BETWEEN ? AND ?`)
+    .bind(whatsapp, ip, agora, inicio, fim).all();
+  if (abertos - minhas.length >= MAX_ABERTOS_POR_PESSOA) {
+    return json({ erro: 'Você já tem pedidos em aberto. Fale com a gente pelo WhatsApp para alterar.' }, 429, h);
+  }
   if (minhas.length) {
     await db.batch(minhas.flatMap(({ id }) => [
       db.prepare("UPDATE reservas SET status = 'substituida' WHERE id = ?").bind(id),
@@ -93,10 +112,10 @@ async function criarReserva(req, env, ctx) {
     await db.batch([
       db.prepare(`DELETE FROM ocupacao WHERE data BETWEEN ? AND ? AND expira_em IS NOT NULL AND expira_em <= ?`).bind(inicio, fim, agora),
       ...datas.map((d) => db.prepare('INSERT INTO ocupacao (data, reserva_id, expira_em) VALUES (?, ?, ?)').bind(d, id, expira)),
-      db.prepare(`INSERT INTO reservas (id, inicio, fim, datas, nome, whatsapp, convidados, valor, detalhe, status, criada_em, expira_em, ambiente)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      db.prepare(`INSERT INTO reservas (id, inicio, fim, datas, nome, whatsapp, convidados, valor, detalhe, status, criada_em, expira_em, ambiente, ip_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(id, inicio, fim, JSON.stringify(datas), nome, whatsapp, convidados, total, detalhe,
-          pedido ? 'pedido' : 'pendente', agora, expira, pedido ? 'whatsapp' : modoMP(env)),
+          pedido ? 'pedido' : 'pendente', agora, expira, pedido ? 'whatsapp' : modoMP(env), ip),
     ]);
   } catch (e) {
     if (/UNIQUE|constraint/i.test(e?.message || '')) return json({ erro: OCUPADO }, 409, h);
@@ -230,13 +249,21 @@ async function webhook(req, env) {
 /* ── Admin ── */
 async function admin(req, env) {
   if (!env.ADMIN_PASSWORD) return json({ erro: 'Configure o segredo ADMIN_PASSWORD na Cloudflare.' }, 503);
+  const db = env.DB;
+  const ip = await ipHash(req);
+  const agoraSenha = Date.now();
+  const erros = (await db.prepare('SELECT COUNT(*) AS n FROM tentativas WHERE ip_hash = ? AND em > ?').bind(ip, agoraSenha - 15 * 60e3).first()).n;
+  if (erros >= MAX_TENTATIVAS_SENHA) return json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' }, 429);
   let dada = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   try { dada = decodeURIComponent(dada); } catch { dada = ''; }
   if (!iguais(dada, String(env.ADMIN_PASSWORD).trim())) {
+    await db.batch([
+      db.prepare('INSERT INTO tentativas (ip_hash, em) VALUES (?, ?)').bind(ip, agoraSenha),
+      db.prepare('DELETE FROM tentativas WHERE em < ?').bind(agoraSenha - 864e5),
+    ]);
     await new Promise((r) => setTimeout(r, 800)); // atrasa quem tenta adivinhar
     return json({ erro: 'Senha incorreta.' }, 401);
   }
-  const db = env.DB;
   if (req.method === 'GET') {
     const agora = Date.now();
     const hoje = hojeSP(agora);

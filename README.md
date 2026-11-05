@@ -97,6 +97,15 @@ npm run dev           # roda tudo no computador (http://127.0.0.1:8788); antes, 
 
 Para testar localmente, crie um arquivo `.dev.vars` (fica fora do git) com `ADMIN_PASSWORD=...` e as outras chaves.
 
+### Segurança e testes
+
+- `npm test` roda os testes automáticos (preços, feriados, agenda, datas e assinatura do Mercado Pago).
+- Cada conexão pode ter no máximo 3 pedidos em aberto ao mesmo tempo (evita que alguém trave a agenda com pedidos falsos).
+- O painel bloqueia por 15 minutos depois de 10 senhas erradas seguidas.
+- Só a mesma pessoa (mesmo WhatsApp e mesma conexão) consegue refazer o próprio pedido.
+- O site envia cabeçalhos de segurança (CSP, nosniff, Permissions-Policy) e o painel não pode ser aberto dentro de outro site.
+- Guardamos só um resumo (hash) do IP, nunca o endereço em si.
+
 ### Segredos (chaves)
 
 Cada um com `wrangler pages secret put NOME --project-name aconchegoeventos` (cola o valor quando pedir) ou no painel: *Cloudflare → Workers & Pages → aconchegoeventos (Pages) → Settings → Variables and Secrets*.
