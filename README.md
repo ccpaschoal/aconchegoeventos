@@ -26,11 +26,12 @@ aconchego-site/
 ├── scripts/agenda.js   # calendário de reservas
 ├── scripts/admin.js    # painel da dona
 ├── scripts/retorno.js  # resumo nas páginas de retorno
-├── netlify/functions/  # disponibilidade, criar-reserva, webhook-mp, admin
-├── netlify/lib/        # regras da agenda, Mercado Pago e alertas
+├── worker/            # API de reservas (Cloudflare Worker): rotas, regras de preço, Mercado Pago e alertas
+├── migrations/        # tabelas do banco D1
+├── build.mjs          # monta a pasta dist (só o que é público)
+├── wrangler.jsonc     # configuração da Cloudflare
 ├── assets/img/         # fotos do espaço, logo, favicon e imagem de compartilhamento
-├── netlify.toml        # configuração do Netlify
-├── package.json        # dependências das functions
+├── package.json        # comandos de build e publicação
 └── README.md
 ```
 
@@ -53,83 +54,94 @@ O céu, as estrelas e a palmeira de fundo ficam logo abaixo, em `body`, `body::b
 
 **Depois de mudar CSS ou JS**: troque o `?v=` no `index.html` (ex.: `20261104a` → `20261104b`) para o navegador não mostrar a versão antiga.
 
-## Publicar no Netlify
+## Publicar
 
-**Pelo GitHub (atualiza sozinho a cada mudança):**
-1. No GitHub Desktop: *File → Add local repository*, escolha a pasta `aconchego-site` e clique em *create a repository* se ele pedir
-2. Clique em *Publish repository*
-3. No Netlify: *Add new site → Import an existing project → GitHub* e escolha `aconchego-site`
-4. Deixe *Build command* vazio e *Publish directory* como `.`
-
-**Jeito rápido (arrastar a pasta):** não serve mais, porque as reservas precisam das Netlify Functions, que só são instaladas quando o site é publicado pelo GitHub (ou pelo Netlify CLI).
-
-**Nome do site**: *Site configuration → Change site name* (ex.: `aconchegoeventos.netlify.app`).
-**Domínio próprio** (ex.: aconchegoeventos.com.br): *Domain management → Add a domain*.
+- **Site com reservas (Cloudflare)**: `npm run deploy` na pasta do site (detalhes na seção Reservas).
+- **GitHub Pages**: atualiza sozinho a cada push na branch `main` (sem o painel; a tela Reservar usa a API da Cloudflare).
 
 ## Reservas
 
-Reserva online com pagamento pelo **Mercado Pago (Checkout Pro: Pix e cartão)**, sem servidor nem banco pago: **Netlify Functions + Netlify Blobs**. Só funciona publicado no **Netlify** (no GitHub Pages a tela Reservar mostra o aviso para reservar pelo WhatsApp).
+Reserva online com pagamento pelo **Mercado Pago (Checkout Pro: Pix e cartão)**, hospedada de graça na **Cloudflare** (Workers + banco D1).
+
+- **Site com reservas e painel**: https://aconchegoeventos.aconchego-site.workers.dev
+- **Painel da dona**: https://aconchegoeventos.aconchego-site.workers.dev/admin.html
+- A versão do GitHub Pages continua no ar e usa a mesma agenda (a API aceita chamadas de `ccpaschoal.github.io`).
+
+**Preços** (editáveis no admin, seção *Preços e regras*)
+- Diária: R$ 500 · diária em feriado: R$ 400
+- Pacote fim de semana: sexta + sábado ou sábado + domingo = R$ 850, só se nenhum dos dois for feriado nem tiver preço especial
+- Exemplos: sex+sáb+dom = R$ 1.350 · sex+sáb + domingo feriado = R$ 850 + R$ 400
+- O cliente reserva de 1 até 3 dias seguidos (*Máximo de dias por reserva*).
+- Feriados automáticos: nacionais, Carnaval e Corpus Christi. Feriados de Goiás e de Trindade a dona marca no calendário do admin (*Feriado → É feriado*), assim como pode desmarcar qualquer um.
 
 **Como funciona**
-1. O cliente abre a tela *Reservar*, escolhe o dia (azul = disponível, listrado = reservado, vazado = indisponível), o período e preenche nome, WhatsApp e convidados.
-2. `criar-reserva` confere a data de novo, segura como **pendente por 30 min** e manda o cliente para o Mercado Pago. Se não pagar em 30 min, a data volta sozinha.
-3. O Mercado Pago avisa o `webhook-mp`, que confere a assinatura, consulta o pagamento na API e marca a reserva como **paga**.
+1. O cliente escolhe o dia, quantos dias e preenche nome, WhatsApp e convidados.
+2. A API recalcula o preço, segura os dias como **pendentes por 30 min** (o banco não deixa dois clientes pegarem o mesmo dia) e manda para o Mercado Pago.
+3. O Mercado Pago avisa `/api/webhook-mp`; a API confere a assinatura, consulta o pagamento e marca a reserva como **paga**.
 4. A dona recebe **e-mail** (Resend) e **WhatsApp** (CallMeBot), uma vez só por reserva.
 
-**Painel da dona**: `https://SEU-SITE.netlify.app/admin.html`
-- *Agenda*: clique num dia para abrir/fechar o dia ou um período, mudar o preço só daquela data (feriado) ou **bloquear** uma reserva fechada pelo WhatsApp.
-- *Reservas*: pagas, aguardando pagamento e bloqueios, com link para o WhatsApp do cliente. "Cancelar" libera a data (o dinheiro se devolve no painel do Mercado Pago).
-- *Padrões*: períodos (nome, horário, preço, "ocupa o dia todo" para a Diária), dias da semana abertos, antecedência mínima, até quantos meses a agenda abre e máximo de convidados.
-- **Período com preço 0 não aparece no site**: depois de publicar, entre no admin e defina os preços.
-- Status *Conflito: devolver* = alguém pagou depois que a reserva expirou e a data já era de outra pessoa (ou pagou valor menor). Devolva pelo Mercado Pago.
+**Painel da dona**
+- *Agenda*: clique num dia para abrir/fechar, marcar feriado, mudar o preço só daquela data ou **bloquear** dias fechados pelo WhatsApp.
+- *Reservas*: pagas, aguardando pagamento e bloqueios, com link para o WhatsApp do cliente. "Cancelar" libera os dias (o dinheiro se devolve no painel do Mercado Pago).
+- Status *Conflito: devolver* = alguém pagou depois que a reserva expirou e o dia já era de outra pessoa (ou pagou menos). Devolva pelo Mercado Pago.
 
-### Variáveis de ambiente
+### Publicar mudanças
 
-No Netlify: *Site configuration → Environment variables → Add a variable*. Depois de criar ou mudar, faça *Deploys → Trigger deploy*.
+Precisa do Node e do Wrangler (`npm i -g wrangler`, depois `wrangler login`). Na pasta do site:
 
-| Variável | Para quê |
+```
+npm run deploy        # monta a pasta dist e publica na Cloudflare
+npm run banco         # aplica mudanças do banco (pasta migrations), se houver
+npm run dev           # roda tudo no computador (http://127.0.0.1:8787); antes, uma vez: npm run banco:local
+```
+
+Para testar localmente, crie um arquivo `.dev.vars` (fica fora do git) com `ADMIN_PASSWORD=...` e as outras chaves.
+
+### Segredos (chaves)
+
+Cada um com `wrangler secret put NOME` (cola o valor quando pedir) ou no painel: *Cloudflare → Workers & Pages → aconchegoeventos → Settings → Variables and Secrets*.
+
+| Nome | Para quê |
 |---|---|
-| `ADMIN_PASSWORD` | Senha do admin.html (use uma senha longa) |
+| `ADMIN_PASSWORD` | Senha do admin.html (já configurada) |
 | `MP_ACCESS_TOKEN` | Access Token **de produção** do Mercado Pago (`APP_USR-...`) |
-| `MP_ACCESS_TOKEN_TESTE` | Access Token **de teste** (`TEST-...` ou o da conta vendedora de teste) |
+| `MP_ACCESS_TOKEN_TESTE` | Access Token **de teste** |
 | `MP_MODO` | `teste` usa o token de teste; vazio ou `producao` usa o de produção |
 | `MP_WEBHOOK_SECRET` | Assinatura secreta do webhook do Mercado Pago |
 | `RESEND_API_KEY` | Chave da Resend (`re_...`) |
 | `EMAIL_DONA` | E-mail que recebe os alertas (vários separados por vírgula) |
-| `EMAIL_REMETENTE` | Opcional. Ex.: `Reservas Aconchego <reservas@seudominio.com.br>`; sem ele usa `onboarding@resend.dev` |
+| `EMAIL_REMETENTE` | Opcional. Ex.: `Reservas Aconchego <reservas@seudominio.com.br>` |
 | `CALLMEBOT_PHONE` | WhatsApp da dona com país e DDD, ex.: `+5562994127148` |
 | `CALLMEBOT_APIKEY` | Chave que o CallMeBot manda no WhatsApp |
-| `SITE_URL` | Opcional. Endereço público (ex.: domínio próprio); sem ele usa o endereço do Netlify |
+| `SITE_URL` | Opcional. Endereço público, se usar domínio próprio |
 
-Nenhuma chave fica no código. Os dados ficam no Netlify Blobs (*Site → Blobs*), lojas `agenda`, `reservas` e `alertas`.
+Segredos valem na hora, sem novo deploy. Nenhuma chave fica no código.
 
 ### Credenciais
 
 **Mercado Pago**
-1. Entre em https://www.mercadopago.com.br/developers/panel/app com a conta que vai receber e clique em *Criar aplicação* (tipo: pagamentos online, Checkout Pro).
-2. *Credenciais de produção* → copie o **Access Token** para `MP_ACCESS_TOKEN` (pode pedir para ativar as credenciais preenchendo dados do negócio).
-3. *Credenciais de teste* → copie o **Access Token** para `MP_ACCESS_TOKEN_TESTE`. Se o painel pedir, crie em *Contas de teste* um **vendedor** e um **comprador**; o token de teste também pode ser o de produção da conta vendedora de teste.
-4. *Webhooks → Configurar notificações*: URL (produção e teste) `https://SEU-SITE.netlify.app/.netlify/functions/webhook-mp?source_news=webhooks`, evento **Pagamentos**, salvar. Copie a **Assinatura secreta** para `MP_WEBHOOK_SECRET`.
+1. https://www.mercadopago.com.br/developers/panel/app com a conta que vai receber → *Criar aplicação* (pagamentos online, Checkout Pro).
+2. *Credenciais de produção* → **Access Token** → `MP_ACCESS_TOKEN`.
+3. *Credenciais de teste* → **Access Token** → `MP_ACCESS_TOKEN_TESTE`. Se pedir, crie em *Contas de teste* um vendedor e um comprador.
+4. *Webhooks → Configurar notificações*: URL `https://aconchegoeventos.aconchego-site.workers.dev/api/webhook-mp?source_news=webhooks` (produção e teste), evento **Pagamentos**, salvar. Copie a **Assinatura secreta** → `MP_WEBHOOK_SECRET`.
 
 **Resend (e-mail)**
-1. Crie a conta em https://resend.com, **de preferência com o e-mail da dona**: sem domínio verificado, a Resend só entrega para o e-mail da própria conta.
-2. *API Keys → Create API Key* (permissão *Sending access*) → `RESEND_API_KEY`.
-3. Opcional: *Domains → Add domain* para enviar de um endereço próprio (`EMAIL_REMETENTE`).
+1. Conta em https://resend.com, **de preferência com o e-mail da dona** (sem domínio próprio a Resend só entrega para o e-mail da conta).
+2. *API Keys → Create API Key* → `RESEND_API_KEY`. O e-mail da dona vai em `EMAIL_DONA`.
 
 **CallMeBot (WhatsApp, grátis para o próprio número)**
 1. No celular da dona, salve o número do CallMeBot que aparece em https://www.callmebot.com/blog/free-api-whatsapp-messages/.
-2. Mande para ele, pelo WhatsApp: `I allow callmebot to send me messages`.
+2. Mande para ele: `I allow callmebot to send me messages`.
 3. A resposta traz a **apikey** → `CALLMEBOT_APIKEY`. O número da dona vai em `CALLMEBOT_PHONE`.
 
 ### Testar no sandbox do Mercado Pago
 
-1. Configure `MP_MODO=teste` e `MP_ACCESS_TOKEN_TESTE`, faça um novo deploy.
-2. No admin, defina preço para pelo menos um período.
-3. Numa **janela anônima**, reserve uma data no site. No Mercado Pago, entre com o **comprador de teste** (se pedir) e pague com cartão de teste:
+1. `MP_MODO=teste` e `MP_ACCESS_TOKEN_TESTE` configurados.
+2. Numa **janela anônima**, reserve uma data. No Mercado Pago, entre com o **comprador de teste** (se pedir) e pague com cartão de teste:
    - Mastercard `5031 4332 1540 6351` · Visa `4235 6477 2802 5682` · CVV `123` · validade `11/30`
-   - Nome do titular: `APRO` (aprovado), `CONT` (pendente) ou `OTHE` (recusado) · CPF `12345678909`
-4. Aprovado: volta para `sucesso.html`, a reserva aparece como *Paga* no admin e chegam o e-mail e o WhatsApp. Os logs ficam em *Logs → Functions → webhook-mp*.
-5. Tudo certo: troque `MP_MODO` para `producao` (ou apague) e faça novo deploy.
+   - Titular `APRO` (aprovado), `CONT` (pendente) ou `OTHE` (recusado) · CPF `12345678909`
+3. Aprovado: volta para a página de sucesso, a reserva aparece como *Paga* no admin e chegam o e-mail e o WhatsApp. Logs: *Cloudflare → Workers & Pages → aconchegoeventos → Logs* (ou `wrangler tail`).
+4. Tudo certo: troque `MP_MODO` para `producao`.
 
 ---
 

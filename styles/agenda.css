@@ -37,6 +37,7 @@
 .cal-dia.is-carregando { background: rgba(0, 46, 69, .07); color: transparent; animation: cal-pulsa 1.2s ease-in-out infinite; }
 @keyframes cal-pulsa { 50% { opacity: .45; } }
 .cal-dia.is-hoje::after { content: ""; position: absolute; left: 32%; right: 32%; bottom: 14%; height: 2px; background: currentColor; }
+.cal-dia.is-no-intervalo { background: var(--marinho); color: var(--branco); box-shadow: inset 0 0 0 3px var(--azul); }
 .cal-dia.is-escolhido { background: var(--branco); color: var(--azul); border: 3px solid var(--azul); box-shadow: 4px 4px 0 var(--marinho); transform: translate(-2px, -2px); text-decoration: none; }
 .cal-dia.tem-excecao::before { content: ""; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; background: #F2B33D; }
 

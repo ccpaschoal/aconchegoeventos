@@ -1,0 +1,19 @@
+// Cloudflare Workers: site estático (pasta dist, gerada pelo build.mjs) + API de reservas (worker/index.js) + banco D1.
+// Publicar: npm run deploy
+{
+  "$schema": "https://unpkg.com/wrangler@4.157.0/config-schema.json",
+  "name": "aconchegoeventos",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-03",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "aconchego", "database_id": "4635144e-9b85-4b5e-87a8-2cc53a42b313", "migrations_dir": "migrations" }
+  ],
+  // Lembrete diário: libera reservas pendentes vencidas (a disponibilidade já ignora as vencidas; isso só limpa)
+  "triggers": { "crons": ["0 9 * * *"] }
+}

@@ -130,17 +130,18 @@
   window.AconchegoCalendario = Calendario;
   window.AconchegoData = { somaMeses, dataLonga, nomeMes, reais, esc, hojeLocal, MESES, SEMANA };
 
-  /* ── Reserva na página principal ── */
+  /* ── Reserva na página principal ──
+     Aluguel por diária: o cliente escolhe um dia e depois quantos dias seguidos (até maxDias).
+     A conta abaixo é só para mostrar; o valor cobrado é recalculado no servidor (worker/regras.js). */
   const raiz = document.getElementById('agenda');
   if (!raiz) return;
-  const API = raiz.dataset.api || '/api';
+  const API = (location.hostname.endsWith('github.io') && raiz.dataset.apiExterna) || raiz.dataset.api || '/api';
   const WPP = raiz.dataset.whatsapp || '';
   const ESTADOS = {
     disponivel: { classe: 'is-disponivel', rotulo: 'disponível', ativo: true },
     reservado: { classe: 'is-reservado', rotulo: 'reservado', ativo: false },
     indisponivel: { classe: 'is-indisponivel', rotulo: 'indisponível', ativo: false },
   };
-  const STATUS_PERIODO = { reservado: 'Reservado', pendente: 'Em reserva', fechado: 'Indisponível' };
 
   raiz.innerHTML = `
     <div class="agenda-cal">
@@ -155,7 +156,7 @@
       <p class="agenda-passo"><span aria-hidden="true">1</span> Dia</p>
       <p class="agenda-dia" aria-live="polite">Escolha um dia azul no calendário.</p>
       <fieldset class="agenda-periodos" disabled>
-        <legend class="agenda-passo"><span aria-hidden="true">2</span> Período</legend>
+        <legend class="agenda-passo"><span aria-hidden="true">2</span> Quantos dias</legend>
         <div class="agenda-opcoes"></div>
       </fieldset>
       <fieldset class="agenda-dados" disabled>
@@ -175,7 +176,7 @@
 
   const form = raiz.querySelector('form');
   const diaTxt = form.querySelector('.agenda-dia');
-  const fsPer = form.querySelector('.agenda-periodos');
+  const fsOpc = form.querySelector('.agenda-periodos');
   const fsDados = form.querySelector('.agenda-dados');
   const opcoes = form.querySelector('.agenda-opcoes');
   const resumo = form.querySelector('.agenda-resumo');
@@ -183,13 +184,14 @@
   const btn = form.querySelector('.agenda-pagar');
   const campo = (n) => form.elements[n];
   const cache = {};
-  let info = null;   // última resposta da API (limites, máximo de convidados)
-  let dia = null;    // dia escolhido
-  let carregando = null;
+  let info = null;      // última resposta da API (limites, pacote, máximo de dias)
+  let lista = [];       // opções de dias para o dia clicado
+  let intervalo = null; // opção escolhida { inicio, fim, datas, n, total, pacote, feriado }
 
   const aviso = (t) => { msg.innerHTML = t; };
   const foraDoAr = () => aviso(`A agenda online não respondeu agora.${WPP ? ` <a href="${WPP}" target="_blank" rel="noopener">Reserve pelo WhatsApp</a>.` : ''}`);
   const diaDe = (data) => cache[data.slice(0, 7)]?.dias.find((d) => d.data === data);
+  const curta = (s) => { const [, m, d] = partes(s); return `${d}/${pad(m)}`; };
 
   const cal = Calendario(raiz.querySelector('.cal-alvo'), {
     mes: hojeLocal().slice(0, 7),
@@ -199,63 +201,97 @@
     estado: (data) => {
       const d = diaDe(data);
       if (!d) return { classe: 'is-carregando', rotulo: 'carregando', ativo: false };
-      return ESTADOS[d.status] || ESTADOS.indisponivel;
+      const e = ESTADOS[d.status] || ESTADOS.indisponivel;
+      // intervalo começa nulo, então cal só é lido depois de criado
+      const dentro = intervalo && intervalo.datas.includes(data) && data !== cal.escolhido;
+      return dentro ? { ...e, classe: `${e.classe} is-no-intervalo`, rotulo: `${e.rotulo}, incluído na reserva` } : e;
     },
     aoMes: (m) => carregar(m),
     aoEscolher: (data) => escolherDia(data),
   });
 
+  async function buscar(mes) {
+    const r = await fetch(`${API}/disponibilidade?mes=${mes}`, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    cache[j.mes] = j;
+    return j;
+  }
+
   async function carregar(mes, forcar) {
     if (cache[mes] && !forcar) return cal.atualizar();
     raiz.setAttribute('aria-busy', 'true');
-    const pedido = (carregando = fetch(`${API}/disponibilidade?mes=${mes}`, { headers: { Accept: 'application/json' } })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status)))));
     try {
-      const j = await pedido;
-      cache[j.mes] = j;
+      const j = await buscar(mes);
       if (!info) { cal.limites(j.de, j.ate); campo('convidados').max = j.maxConvidados; }
       info = j;
       if (msg.textContent.startsWith('A agenda online')) aviso('');
     } catch {
       foraDoAr();
     } finally {
-      if (carregando === pedido) raiz.removeAttribute('aria-busy');
+      raiz.removeAttribute('aria-busy');
       cal.atualizar();
     }
   }
 
-  function escolherDia(data) {
-    dia = diaDe(data);
-    if (!dia) return;
+  /* Mesma regra do servidor: sexta+sábado ou sábado+domingo sem feriado = pacote */
+  function preco(dias) {
+    let total = 0, pacote = false;
+    const ok = (a, b) => info.precoPacote > 0 && !a.feriado && !b.feriado && !a.especial && !b.especial
+      && ((diaSem(a.data) === 5 && diaSem(b.data) === 6) || (diaSem(a.data) === 6 && diaSem(b.data) === 0));
+    for (let i = 0; i < dias.length; i++) {
+      if (dias[i + 1] && ok(dias[i], dias[i + 1])) { total += info.precoPacote; pacote = true; i++; } else total += dias[i].preco;
+    }
+    return { total, pacote };
+  }
+
+  /* Todas as combinações de dias seguidos (1 até maxDias) que incluem o dia clicado e estão livres */
+  function montarOpcoes(data) {
+    const max = info?.maxDias || 1;
+    const r = [];
+    for (let n = 1; n <= max; n++) {
+      for (let k = n - 1; k >= 0; k--) {
+        const datas = Array.from({ length: n }, (_, i) => somaDias(data, i - k));
+        const dias = datas.map(diaDe);
+        if (dias.some((d) => !d || d.status !== 'disponivel')) continue;
+        r.push({ inicio: datas[0], fim: datas[n - 1], datas, n, feriado: dias.some((d) => d.feriado), ...preco(dias) });
+      }
+    }
+    return r;
+  }
+
+  const nomeOpcao = (o) => (o.n === 1 ? dataLonga(o.inicio)
+    : `${SEMANA[diaSem(o.inicio)]} ${curta(o.inicio)} a ${SEMANA[diaSem(o.fim)].toLowerCase()} ${curta(o.fim)}`);
+
+  async function escolherDia(data) {
+    if (!diaDe(data)) return;
+    // Combinações que viram o mês precisam do mês vizinho
+    const max = info?.maxDias || 1;
+    const meses = [somaDias(data, 1 - max).slice(0, 7), somaDias(data, max - 1).slice(0, 7)]
+      .filter((m) => !cache[m] && (!info || (m >= info.de && m <= info.ate)));
+    await Promise.all([...new Set(meses)].map((m) => buscar(m).catch(() => null)));
+    lista = montarOpcoes(data);
     diaTxt.textContent = dataLonga(data);
-    const livres = dia.periodos.filter((p) => p.status === 'livre');
-    opcoes.innerHTML = dia.periodos.map((p) => {
-      const livre = p.status === 'livre';
-      return `<label class="periodo${livre ? '' : ' is-off'}">
-        <input type="radio" name="periodo" value="${esc(p.id)}"${livre ? '' : ' disabled'}${livres.length === 1 && livre ? ' checked' : ''}>
-        <span class="periodo-nome">${esc(p.nome)}</span>
-        <span class="periodo-hora">${esc(p.horario)}</span>
-        <span class="periodo-preco">${livre ? reais(p.preco) : STATUS_PERIODO[p.status] || 'Indisponível'}</span>
-      </label>`;
-    }).join('');
-    fsPer.disabled = false;
+    opcoes.innerHTML = lista.map((o, i) => `<label class="periodo">
+        <input type="radio" name="opcao" value="${i}"${i === 0 ? ' checked' : ''}>
+        <span class="periodo-nome">${o.n} ${o.n === 1 ? 'diária' : 'diárias'}</span>
+        <span class="periodo-hora">${esc(nomeOpcao(o))}${o.pacote ? ' · pacote fim de semana' : ''}${o.feriado ? ' · feriado' : ''}</span>
+        <span class="periodo-preco">${reais(o.total)}</span>
+      </label>`).join('');
+    fsOpc.disabled = false;
     fsDados.disabled = false;
     aviso('');
     atualizaResumo();
-    if (matchMedia('(max-width: 820px)').matches) fsPer.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
-
-  function periodoEscolhido() {
-    const id = form.querySelector('input[name="periodo"]:checked')?.value;
-    return dia?.periodos.find((p) => p.id === id && p.status === 'livre');
+    if (matchMedia('(max-width: 820px)').matches) fsOpc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function atualizaResumo() {
-    const p = periodoEscolhido();
-    resumo.textContent = dia && p ? `${dataLonga(dia.data)} · ${p.nome} · ${reais(p.preco)}` : '';
-    btn.disabled = !p;
+    intervalo = lista[Number(form.querySelector('input[name="opcao"]:checked')?.value)] || null;
+    resumo.textContent = intervalo ? `${nomeOpcao(intervalo)} · ${reais(intervalo.total)}` : '';
+    btn.disabled = !intervalo;
+    cal.atualizar();
   }
-  form.addEventListener('change', (e) => { if (e.target.name === 'periodo') atualizaResumo(); });
+  form.addEventListener('change', (e) => { if (e.target.name === 'opcao') atualizaResumo(); });
 
   // Máscara simples do WhatsApp: (62) 9 9999-9999
   campo('whatsapp').addEventListener('input', (e) => {
@@ -279,10 +315,9 @@
 
   function valida() {
     const max = info?.maxConvidados || 1000;
-    const nome = campo('nome').value.trim();
     const whats = campo('whatsapp').value.replace(/\D/g, '');
     const conv = Number(campo('convidados').value);
-    if (nome.length < 3) return erroCampo('nome', 'Informe seu nome.');
+    if (campo('nome').value.trim().length < 3) return erroCampo('nome', 'Informe seu nome.');
     if (whats.length < 10 || whats.length > 11) return erroCampo('whatsapp', 'Informe o WhatsApp com DDD.');
     if (!Number.isInteger(conv) || conv < 1 || conv > max) return erroCampo('convidados', `Informe de 1 a ${max} convidados.`);
     return true;
@@ -291,9 +326,9 @@
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     aviso('');
-    const p = periodoEscolhido();
-    if (!dia || !p) return aviso('Escolha o dia e o período.');
+    if (!intervalo) return aviso('Escolha o dia e quantos dias.');
     if (!valida()) return;
+    const escolha = intervalo;
     btn.disabled = true;
     btn.textContent = 'Abrindo pagamento…';
     try {
@@ -301,29 +336,30 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          data: dia.data, periodo: p.id, nome: campo('nome').value.trim(),
+          inicio: escolha.inicio, dias: escolha.n, nome: campo('nome').value.trim(),
           whatsapp: campo('whatsapp').value, convidados: Number(campo('convidados').value), site: campo('site').value,
         }),
       }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};
       if (!r || !r.ok || !j.init_point) {
         if (r?.status === 409) {
-          await carregar(dia.data.slice(0, 7), true);
-          escolherDia(dia.data);
+          await Promise.all([...new Set(escolha.datas.map((d) => d.slice(0, 7)))].map((m) => carregar(m, true)));
+          if (diaDe(cal.escolhido)?.status === 'disponivel') await escolherDia(cal.escolhido);
         }
         throw new Error(j.erro || 'Não foi possível continuar agora. Tente de novo em instantes.');
       }
       try {
         localStorage.setItem('aconchego-reserva', JSON.stringify({
-          id: j.id, data: dia.data, quando: dataLonga(dia.data), periodo: p.nome, horario: p.horario, valor: p.preco,
-          link: j.init_point, expiraEm: j.expiraEm,
+          id: j.id, quando: nomeOpcao(escolha),
+          periodo: `${escolha.n} ${escolha.n === 1 ? 'diária' : 'diárias'}${escolha.pacote ? ' · pacote fim de semana' : ''}`,
+          horario: '', valor: j.valor ?? escolha.total, link: j.init_point, expiraEm: j.expiraEm,
         }));
       } catch { /* sem armazenamento: as páginas de retorno funcionam sem o resumo */ }
       location.href = j.init_point;
     } catch (err) {
       aviso(esc(err.message));
       btn.textContent = 'Avançar para pagamento';
-      atualizaResumo();
+      btn.disabled = !intervalo;
     }
   });
 

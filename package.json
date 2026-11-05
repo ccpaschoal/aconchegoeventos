@@ -2,13 +2,12 @@
   "name": "aconchego-site",
   "private": true,
   "type": "module",
-  "description": "Site do Aconchego Festas e Eventos com reservas online (Netlify Functions + Netlify Blobs + Mercado Pago)",
-  "engines": {
-    "node": ">=20"
-  },
-  "dependencies": {
-    "@netlify/blobs": "^10.7.13",
-    "mercadopago": "^3.6.1",
-    "resend": "^6.37.0"
+  "description": "Site do Aconchego Festas e Eventos com reservas online (Cloudflare Workers + D1 + Mercado Pago)",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs && wrangler dev",
+    "banco:local": "wrangler d1 migrations apply aconchego --local",
+    "banco": "wrangler d1 migrations apply aconchego --remote",
+    "deploy": "node build.mjs && wrangler deploy"
   }
 }

@@ -1,5 +1,5 @@
 /* Aconchego · painel da dona (admin.html).
-   A senha só fica na sessão deste navegador e é conferida pela function /api/admin. */
+   A senha só fica na sessão deste navegador e é conferida pela API (/api/admin). */
 (() => {
   const { dataLonga, reais, esc, hojeLocal, SEMANA } = window.AconchegoData;
   const $ = (s, el = document) => el.querySelector(s);
@@ -17,6 +17,9 @@
   const fone = (n = '') => (n.length >= 10 ? `(${n.slice(0, 2)}) ${n.slice(2, -4)}-${n.slice(-4)}` : n);
   const dataCurta = (s) => s.split('-').reverse().join('/');
   const diaSemana = (s) => { const [a, m, d] = s.split('-').map(Number); return new Date(Date.UTC(a, m - 1, d)).getUTCDay(); };
+  const quando = (r) => (r.inicio === r.fim ? dataCurta(r.inicio) : `${dataCurta(r.inicio)} a ${dataCurta(r.fim)}`);
+  const tri = (v) => (v === '1' ? true : v === '0' ? false : null);
+  const sel = (v, alvo) => (v === alvo ? ' selected' : '');
 
   let senha = '';
   try { senha = sessionStorage.getItem(CHAVE) || ''; } catch { /* sem sessão: pede a senha */ }
@@ -49,10 +52,9 @@
 
   $('#form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const msg = $('#login-msg');
     senha = e.target.elements.senha.value;
-    msg.textContent = '';
-    try { await entrar(); } catch (err) { $('#login').hidden = false; msg.textContent = err.message; }
+    $('#login-msg').textContent = '';
+    try { await entrar(); } catch (err) { $('#login').hidden = false; $('#login-msg').textContent = err.message; }
   });
 
   async function entrar() {
@@ -71,10 +73,8 @@
     dados = await api('GET', null, cal.mes);
     cal.atualizar();
     tabela();
-    if (diaAberto) {
-      const d = dados.dias.find((x) => x.data === diaAberto);
-      if (d) editor(d);
-    }
+    const d = diaAberto && dados.dias.find((x) => x.data === diaAberto);
+    if (d) editor(d);
   }
 
   /* ── 1. Calendário + editor do dia ── */
@@ -86,11 +86,10 @@
       estado: (data) => {
         const d = dados?.mes === data.slice(0, 7) && dados.dias.find((x) => x.data === data);
         if (!d) return { classe: 'is-carregando', rotulo: 'carregando', ativo: false };
-        const st = d.periodos.map((p) => p.status);
-        let e = st.includes('reservado') ? ['is-reservado', 'tem reserva']
-          : st.includes('pendente') ? ['is-pendente', 'aguardando pagamento']
-            : st.includes('livre') ? ['is-disponivel', 'aberto'] : ['is-indisponivel', 'fechado'];
-        if (d.excecao) e = [`${e[0]} tem-excecao`, `${e[1]}, com ajuste`];
+        let e = d.status === 'reservado' ? ['is-reservado', 'reservado']
+          : d.status === 'pendente' ? ['is-pendente', 'aguardando pagamento']
+            : d.status === 'livre' ? ['is-disponivel', 'aberto'] : ['is-indisponivel', 'fechado'];
+        if (d.feriado || d.ajuste) e = [`${e[0]} tem-excecao`, `${e[1]}${d.feriado ? ', feriado' : ', com ajuste'}`];
         return { classe: e[0], rotulo: e[1], ativo: true };
       },
       aoMes: async () => { try { await recarregar(); } catch (err) { avisoDia(err.message); } },
@@ -104,63 +103,61 @@
 
   const form = $('#adm-dia');
   const avisoDia = (t, ok) => {
-    const m = $('.agenda-msg', form);
-    const o = $('.adm-ok', form);
+    const m = $('.agenda-msg', form), o = $('.adm-ok', form);
     if (m) m.textContent = ok ? '' : t;
     if (o) o.textContent = ok ? t : '';
   };
 
-  function periodoHtml(p) {
-    const r = p.reserva;
-    const padrao = dados.config.periodos.find((x) => x.id === p.id)?.preco ?? 0;
-    const selo = r ? [r.situacao, SITUACAO[r.situacao] || r.situacao] : p.status === 'livre' ? ['livre', 'Livre'] : ['', 'Fechado'];
-    const cliente = r ? `<p class="adm-cliente">${esc(r.nome)}${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : ''}${r.convidados ? ` · ${r.convidados} convidados` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}</p>
-      ${r.situacao === 'bloqueio' ? `<div><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Liberar bloqueio</button></div>` : ''}` : '';
-    const bloqueio = r ? '' : `
-      <div><button type="button" class="btn btn-linha c-azul btn-mini" data-abrir-bloq="${esc(p.id)}" aria-expanded="false" aria-controls="bloq-${esc(p.id)}">Bloquear (fechado pelo WhatsApp)</button></div>
-      <div class="adm-bloq" id="bloq-${esc(p.id)}" hidden>
-        <label class="campo"><span>Nome do cliente</span><input name="bnome-${esc(p.id)}" maxlength="80"></label>
-        <label class="campo"><span>WhatsApp (opcional)</span><input name="bwhats-${esc(p.id)}" type="tel" inputmode="tel"></label>
-        <label class="campo"><span>Valor combinado (opcional)</span><input name="bvalor-${esc(p.id)}" type="number" min="0" step="1" inputmode="decimal"></label>
-        <div><button type="button" class="btn btn-azul btn-mini" data-bloquear="${esc(p.id)}">Confirmar bloqueio</button></div>
-      </div>`;
-    return `<div class="adm-periodo">
-      <div class="adm-periodo-topo"><b>${esc(p.nome)}</b><small>${esc(p.horario)}</small><span class="selo is-${selo[0]}">${esc(selo[1])}</span></div>
-      ${cliente}
-      <label class="chk"><input type="checkbox" name="aberto-${esc(p.id)}"${p.fechado ? '' : ' checked'}> Aberto para reserva neste dia</label>
-      <label class="campo"><span>Preço nesta data (R$)</span><input type="number" min="0" step="1" inputmode="decimal" name="preco-${esc(p.id)}" value="${p.precoExcecao ?? ''}" placeholder="Padrão: ${reais(padrao)}"></label>
-      ${bloqueio}
-    </div>`;
-  }
-
   function editor(d) {
-    const exc = d.excecao || {};
-    const padraoAberto = dados.config.semana[diaSemana(d.data)];
-    const fechadoAgora = d.motivo === 'fechado';
+    const aj = d.ajuste || {};
+    const c = dados.config;
+    const padraoAberto = c.semana[diaSemana(d.data)];
+    const fechado = d.motivo === 'fechado';
+    const r = d.reserva;
+    const seloTxt = r ? (SITUACAO[r.status] || r.status) : d.status === 'livre' ? 'Livre' : 'Fechado';
+    const seloCls = r ? r.status : d.status === 'livre' ? 'livre' : '';
+    const valorAuto = d.feriado ? c.precoFeriado : c.precoDiaria;
     form.innerHTML = `
       <p class="agenda-passo">${esc(dataLonga(d.data))}</p>
+      <div class="adm-periodo-topo"><span class="selo is-${seloCls}">${esc(seloTxt)}</span>${d.feriado ? `<span class="selo">Feriado${d.nomeFeriado ? `: ${esc(d.nomeFeriado)}` : ''}</span>` : ''}</div>
       ${MOTIVO[d.motivo] ? `<p class="nota">${MOTIVO[d.motivo]}</p>` : ''}
-      <div class="acoes"><button type="button" class="btn ${fechadoAgora ? 'btn-azul' : 'btn-linha c-azul'} btn-mini" data-rapido="${fechadoAgora ? 1 : 0}">${fechadoAgora ? 'Abrir este dia' : 'Fechar este dia'}</button></div>
+      ${r ? `<div class="adm-periodo">
+        <p class="adm-cliente"><b>${esc(r.nome)}</b>${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : ''}${r.convidados ? ` · ${r.convidados} convidados` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}<br>Reserva: ${quando(r)}</p>
+        ${r.status === 'bloqueio' ? `<div><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Liberar bloqueio</button></div>` : ''}
+      </div>` : ''}
+      <div class="acoes"><button type="button" class="btn ${fechado ? 'btn-azul' : 'btn-linha c-azul'} btn-mini" data-rapido="${fechado ? 1 : 0}">${fechado ? 'Abrir este dia' : 'Fechar este dia'}</button></div>
       <label class="campo"><span>Este dia</span><select name="aberto">
         <option value="">Igual ao padrão de ${SEMANA[diaSemana(d.data)].toLowerCase()} (${padraoAberto ? 'aberto' : 'fechado'})</option>
-        <option value="1"${exc.aberto === true ? ' selected' : ''}>Aberto</option>
-        <option value="0"${exc.aberto === false ? ' selected' : ''}>Fechado</option>
+        <option value="1"${sel(aj.aberto, 1)}>Aberto</option>
+        <option value="0"${sel(aj.aberto, 0)}>Fechado</option>
       </select></label>
-      ${d.periodos.map(periodoHtml).join('')}
+      <label class="campo"><span>Feriado</span><select name="feriado">
+        <option value="">Automático (${d.nomeFeriado ? `sim: ${esc(d.nomeFeriado)}` : 'não'})</option>
+        <option value="1"${sel(aj.feriado, 1)}>É feriado</option>
+        <option value="0"${sel(aj.feriado, 0)}>Não é feriado</option>
+      </select></label>
+      <label class="campo"><span>Preço só desta data (R$)</span><input type="number" min="0" step="1" inputmode="decimal" name="preco" value="${aj.preco ?? ''}" placeholder="Padrão: ${reais(valorAuto)}"></label>
       <p class="agenda-msg" role="alert"></p>
       <p class="adm-ok" role="status"></p>
-      <div class="acoes"><button class="btn btn-azul" type="submit">Salvar este dia</button></div>`;
+      <div class="acoes"><button class="btn btn-azul" type="submit">Salvar este dia</button></div>
+      ${r ? '' : `
+      <div><button type="button" class="btn btn-linha c-azul btn-mini" data-abrir-bloq aria-expanded="false" aria-controls="adm-bloq">Bloquear (reserva fechada pelo WhatsApp)</button></div>
+      <div class="adm-bloq adm-periodo" id="adm-bloq" hidden>
+        <label class="campo"><span>Nome do cliente</span><input name="bnome" maxlength="80"></label>
+        <label class="campo"><span>WhatsApp (opcional)</span><input name="bwhats" type="tel" inputmode="tel"></label>
+        <label class="campo"><span>Quantos dias a partir deste</span><input name="bdias" type="number" min="1" max="14" step="1" value="1"></label>
+        <label class="campo"><span>Valor combinado (opcional)</span><input name="bvalor" type="number" min="0" step="1" inputmode="decimal"></label>
+        <div><button type="button" class="btn btn-azul btn-mini" data-bloquear>Confirmar bloqueio</button></div>
+      </div>`}`;
   }
 
-  const lerDia = (abertoForcado) => {
-    const v = form.elements.aberto.value;
-    const periodos = {};
-    dados.config.periodos.forEach((p) => {
-      periodos[p.id] = { fechado: !form.elements[`aberto-${p.id}`]?.checked, preco: form.elements[`preco-${p.id}`]?.value ?? '' };
-    });
-    const aberto = abertoForcado !== undefined ? abertoForcado : v === '1' ? true : v === '0' ? false : null;
-    return { acao: 'dia', data: diaAberto, aberto, periodos };
-  };
+  const lerDia = (abertoForcado) => ({
+    acao: 'dia',
+    data: diaAberto,
+    aberto: abertoForcado !== undefined ? abertoForcado : tri(form.elements.aberto.value),
+    feriado: tri(form.elements.feriado.value),
+    preco: form.elements.preco.value,
+  });
 
   async function acaoDia(corpo, ok) {
     try {
@@ -175,17 +172,14 @@
     const b = e.target.closest('button[type="button"]');
     if (!b) return;
     if (b.dataset.rapido !== undefined) acaoDia(lerDia(b.dataset.rapido === '1'), b.dataset.rapido === '1' ? 'Dia aberto.' : 'Dia fechado.');
-    else if (b.dataset.abrirBloq) {
-      const caixa = $(`#bloq-${b.dataset.abrirBloq}`, form);
+    else if (b.hasAttribute('data-abrir-bloq')) {
+      const caixa = $('#adm-bloq', form);
       caixa.hidden = !caixa.hidden;
       b.setAttribute('aria-expanded', String(!caixa.hidden));
       if (!caixa.hidden) $('input', caixa).focus();
-    } else if (b.dataset.bloquear) {
-      const id = b.dataset.bloquear;
-      acaoDia({
-        acao: 'bloquear', data: diaAberto, periodo: id,
-        nome: form.elements[`bnome-${id}`].value, whatsapp: form.elements[`bwhats-${id}`].value, valor: form.elements[`bvalor-${id}`].value,
-      }, 'Data bloqueada.');
+    } else if (b.hasAttribute('data-bloquear')) {
+      const f = form.elements;
+      acaoDia({ acao: 'bloquear', inicio: diaAberto, dias: f.bdias.value, nome: f.bnome.value, whatsapp: f.bwhats.value, valor: f.bvalor.value }, 'Data bloqueada.');
     } else if (b.dataset.liberar) acaoDia({ acao: 'cancelar', id: b.dataset.liberar }, 'Bloqueio liberado.');
   });
 
@@ -193,21 +187,20 @@
   function tabela() {
     const filtro = $('#adm-filtro').value;
     let lista = dados.reservas;
-    if (filtro === 'proximas') lista = lista.filter((r) => r.data >= dados.hoje && ['paga', 'pendente', 'bloqueio', 'conflito'].includes(r.situacao));
+    if (filtro === 'proximas') lista = lista.filter((r) => r.fim >= dados.hoje && ['paga', 'pendente', 'bloqueio', 'conflito'].includes(r.situacao));
     else if (filtro !== 'todas') lista = lista.filter((r) => r.situacao === filtro);
     const caixa = $('#adm-reservas');
     if (!lista.length) { caixa.innerHTML = '<p class="adm-vazio">Nenhuma reserva aqui.</p>'; return; }
     caixa.innerHTML = `<table class="adm-tabela">
-      <thead><tr><th scope="col">Data</th><th scope="col">Período</th><th scope="col">Cliente</th><th scope="col">WhatsApp</th><th scope="col">Conv.</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+      <thead><tr><th scope="col">Data</th><th scope="col">Cliente</th><th scope="col">WhatsApp</th><th scope="col">Conv.</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
       <tbody>${lista.map((r) => {
         const pode = ['paga', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
         return `<tr>
-          <td><b>${dataCurta(r.data)}</b><br><small>${SEMANA[diaSemana(r.data)]}</small></td>
-          <td>${esc(r.periodoNome || r.periodo)}<br><small>${esc(r.horario || '')}</small></td>
+          <td><b>${quando(r)}</b><br><small>${SEMANA[diaSemana(r.inicio)]}${r.inicio !== r.fim ? ` a ${SEMANA[diaSemana(r.fim)].toLowerCase()}` : ''}</small></td>
           <td>${esc(r.nome)}${r.obs ? `<br><small>${esc(r.obs)}</small>` : ''}</td>
           <td>${r.whatsapp ? `<a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : '-'}</td>
           <td>${r.convidados ?? '-'}</td>
-          <td>${r.valor ? reais(r.valorPago ?? r.valor) : '-'}</td>
+          <td>${r.valor ? reais(r.valor_pago ?? r.valor) : '-'}${r.detalhe ? `<br><small>${esc(r.detalhe)}</small>` : ''}</td>
           <td><span class="selo is-${esc(r.situacao)}">${SITUACAO[r.situacao] || esc(r.situacao)}</span></td>
           <td>${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}</td>
         </tr>`;
@@ -231,51 +224,25 @@
     catch (err) { b.disabled = false; b.textContent = err.message; }
   });
 
-  /* ── 3. Períodos, preços e dias da semana ── */
+  /* ── 3. Preços e regras ── */
   const cfgForm = $('#adm-config');
-  const linhaPeriodo = (p = {}) => `<div class="adm-periodo-cfg" data-id="${esc(p.id || '')}">
-    <label class="campo"><span>Nome</span><input name="nome" value="${esc(p.nome || '')}" maxlength="30" required></label>
-    <label class="campo"><span>Horário</span><input name="horario" value="${esc(p.horario || '')}" maxlength="30" placeholder="19h às 2h"></label>
-    <label class="campo"><span>Preço padrão (R$)</span><input name="preco" type="number" min="0" step="1" inputmode="decimal" value="${p.preco ?? 0}"></label>
-    <label class="chk"><input type="checkbox" name="diaInteiro"${p.diaInteiro ? ' checked' : ''}> Ocupa o dia todo</label>
-    <button type="button" class="btn btn-linha c-azul btn-mini" data-remover>Remover</button>
-  </div>`;
+  const CAMPOS = ['precoDiaria', 'precoFeriado', 'precoPacote', 'antecedenciaDias', 'mesesAFrente', 'maxConvidados', 'maxDias'];
 
   function configForm() {
     const c = dados.config;
-    $('#cfg-periodos').innerHTML = c.periodos.map(linhaPeriodo).join('');
     const semana = $('#cfg-semana');
     semana.querySelectorAll('.chk').forEach((el) => el.remove());
     SEMANA.forEach((s, i) => semana.insertAdjacentHTML('beforeend',
       `<label class="chk"><input type="checkbox" name="semana-${i}"${c.semana[i] ? ' checked' : ''}> ${s}</label>`));
-    ['antecedenciaDias', 'mesesAFrente', 'maxConvidados'].forEach((k) => { cfgForm.elements[k].value = c[k]; });
+    CAMPOS.forEach((k) => { cfgForm.elements[k].value = c[k]; });
   }
-
-  $('#cfg-add').addEventListener('click', () => {
-    $('#cfg-periodos').insertAdjacentHTML('beforeend', linhaPeriodo());
-    $('#cfg-periodos .adm-periodo-cfg:last-child input').focus();
-  });
-  $('#cfg-periodos').addEventListener('click', (e) => {
-    if (e.target.closest('[data-remover]')) e.target.closest('.adm-periodo-cfg').remove();
-  });
 
   cfgForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     $('#cfg-msg').textContent = '';
     $('#cfg-ok').textContent = '';
-    const config = {
-      periodos: [...cfgForm.querySelectorAll('.adm-periodo-cfg')].map((l) => ({
-        id: l.dataset.id || undefined,
-        nome: $('[name="nome"]', l).value,
-        horario: $('[name="horario"]', l).value,
-        preco: Number($('[name="preco"]', l).value || 0),
-        diaInteiro: $('[name="diaInteiro"]', l).checked,
-      })),
-      semana: SEMANA.map((_, i) => cfgForm.elements[`semana-${i}`].checked),
-      antecedenciaDias: cfgForm.elements.antecedenciaDias.value,
-      mesesAFrente: cfgForm.elements.mesesAFrente.value,
-      maxConvidados: cfgForm.elements.maxConvidados.value,
-    };
+    const config = Object.fromEntries(CAMPOS.map((k) => [k, Number(cfgForm.elements[k].value || 0)]));
+    config.semana = SEMANA.map((_, i) => cfgForm.elements[`semana-${i}`].checked);
     try {
       await api('POST', { acao: 'config', config });
       await recarregar();

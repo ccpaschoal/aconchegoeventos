@@ -19,11 +19,11 @@
     caixa.hidden = false;
   }
 
-  const pagina = location.pathname.split('/').pop();
+  const pagina = location.pathname.split('/').pop().replace(/.html$/, '');
   // Erro: enquanto a reserva ainda está guardada, "Tentar de novo" volta para o mesmo pagamento
-  if (pagina === 'erro.html' && r?.link && Date.parse(r.expiraEm) > Date.now() + 60e3) {
+  if (pagina === 'erro' && r?.link && Date.parse(r.expiraEm) > Date.now() + 60e3) {
     const btn = document.querySelector('.acoes .btn');
     if (btn) { btn.href = r.link; btn.textContent = 'Tentar pagar de novo'; }
   }
-  if (pagina === 'sucesso.html') { try { localStorage.removeItem('aconchego-reserva'); } catch { /* ok */ } }
+  if (pagina === 'sucesso') { try { localStorage.removeItem('aconchego-reserva'); } catch { /* ok */ } }
 })();
