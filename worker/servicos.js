@@ -56,7 +56,7 @@ export function iguais(a, b) {
 const fone = (n = '') => (n.length >= 10 ? `(${n.slice(0, 2)}) ${n.slice(2, -4)}-${n.slice(-4)}` : n);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const METODO = { bank_transfer: 'Pix', credit_card: 'cartão de crédito', debit_card: 'cartão de débito', account_money: 'saldo Mercado Pago' };
-const quando = (r) => (r.inicio === r.fim
+export const quando = (r) => (r.inicio === r.fim
   ? `${dataBR(r.inicio)} (${SEMANA[diaSemana(r.inicio)]})`
   : `${dataBR(r.inicio)} (${SEMANA[diaSemana(r.inicio)]}) a ${dataBR(r.fim)} (${SEMANA[diaSemana(r.fim)]})`);
 
@@ -72,9 +72,10 @@ function linhas(r) {
     ['Código', r.id],
   ];
 }
-const titulo = (r) => (r.status === 'conflito'
-  ? '⚠️ PAGAMENTO APROVADO, MAS A DATA JÁ ESTAVA OCUPADA (ou o valor não bate). Confira e devolva no Mercado Pago.'
-  : '✅ NOVA RESERVA PAGA · Aconchego');
+export const titulo = (r) => ({
+  conflito: '⚠️ PAGAMENTO APROVADO, MAS A DATA JÁ ESTAVA OCUPADA (ou o valor não bate). Confira e devolva no Mercado Pago.',
+  pedido: '📩 NOVO PEDIDO DE RESERVA · o cliente vai chamar no WhatsApp. Confirme ou cancele no painel.',
+}[r.status] || '✅ NOVA RESERVA PAGA · Aconchego');
 export const textoAlerta = (r) => [titulo(r), '', ...linhas(r).map(([k, v]) => `${k}: ${v}`)].join('\n');
 
 export async function enviarEmail(env, r) {
@@ -91,7 +92,8 @@ export async function enviarEmail(env, r) {
       body: JSON.stringify({
         from: env.EMAIL_REMETENTE || 'Reservas Aconchego <onboarding@resend.dev>',
         to: env.EMAIL_DONA.split(',').map((s) => s.trim()).filter(Boolean),
-        subject: r.status === 'conflito' ? `⚠️ Conflito de reserva ${dataBR(r.inicio)}` : `Reserva paga: ${quando(r)}`,
+        subject: r.status === 'conflito' ? `⚠️ Conflito de reserva ${dataBR(r.inicio)}`
+          : r.status === 'pedido' ? `Pedido de reserva: ${quando(r)}` : `Reserva paga: ${quando(r)}`,
         html,
         text: textoAlerta(r),
       }),

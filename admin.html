@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles/style.css?v=20261105c">
-  <link rel="stylesheet" href="styles/agenda.css?v=20261105c">
-  <script src="scripts/agenda.js?v=20261105c" defer></script>
-  <script src="scripts/admin.js?v=20261105c" defer></script>
+  <link rel="stylesheet" href="styles/style.css?v=20261105d">
+  <link rel="stylesheet" href="styles/agenda.css?v=20261105d">
+  <script src="scripts/agenda.js?v=20261105d" defer></script>
+  <script src="scripts/admin.js?v=20261105d" defer></script>
 </head>
 <body class="pagina admin">
 <header class="topo">
@@ -39,6 +39,17 @@
   </section>
 
   <div id="painel" class="pilha" hidden style="gap:20px">
+    <section class="screen marinho reservar" aria-labelledby="t-avisos">
+      <div class="adm-filtro">
+        <div class="pilha">
+          <p class="eyebrow c-claro">Avisos</p>
+          <h2 class="display h2" id="t-avisos">Novidades <span class="sub" id="avisos-n"></span></h2>
+        </div>
+        <button class="btn btn-branco btn-mini" type="button" id="avisos-lidos">Marcar todos como lidos</button>
+      </div>
+      <ul class="adm-avisos" id="adm-avisos"></ul>
+    </section>
+
     <section class="screen branco reservar" aria-labelledby="t-agenda">
       <div class="reservar-topo">
         <div class="pilha">
@@ -74,6 +85,8 @@
           <select id="adm-filtro">
             <option value="proximas">Próximas (pagas, aguardando e bloqueios)</option>
             <option value="paga">Pagas</option>
+            <option value="pedido">Pedidos pelo WhatsApp</option>
+            <option value="confirmada">Confirmadas pelo WhatsApp</option>
             <option value="pendente">Aguardando pagamento</option>
             <option value="bloqueio">Bloqueios manuais</option>
             <option value="todas">Todas (inclui canceladas e expiradas)</option>

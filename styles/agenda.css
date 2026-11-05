@@ -124,7 +124,8 @@
   background: rgba(0, 46, 69, .1); color: var(--marinho); white-space: nowrap; }
 .selo.is-livre, .selo.is-paga { background: var(--azul); color: var(--branco); }
 .selo.is-reservado, .selo.is-bloqueio { background: var(--marinho); color: var(--branco); }
-.selo.is-pendente { background: var(--azul-claro); color: var(--marinho); }
+.selo.is-pendente, .selo.is-pedido { background: var(--azul-claro); color: var(--marinho); }
+.selo.is-confirmada { background: var(--marinho); color: var(--branco); }
 .selo.is-conflito { background: #B3261E; color: var(--branco); }
 .btn-mini { padding: .6em .9em; font-size: .7rem; }
 .adm-tabela-box { width: 100%; overflow-x: auto; background: var(--branco); }
@@ -144,4 +145,10 @@
 @media (max-width: 600px) { .adm-numeros { grid-template-columns: minmax(0, 1fr); } }
 .adm-ok { font-weight: 700; color: var(--azul); }
 .adm-ok:empty { display: none; }
+.adm-avisos { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 360px; overflow-y: auto; }
+.adm-avisos li { display: grid; gap: 2px; padding: 12px 14px; background: rgba(255, 255, 255, .07); font-size: .9rem; }
+.adm-avisos li.is-novo { background: var(--branco); color: var(--marinho); border-left: 6px solid var(--azul); }
+.adm-avisos small { font-weight: 700; opacity: .75; }
+.adm-avisos b { font-family: var(--f-display); font-weight: 800; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.adm-tabela td.acoes { display: flex; gap: 6px; flex-wrap: wrap; }
 .adm-filtro { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; justify-content: space-between; }

@@ -5,7 +5,7 @@
   const $ = (s, el = document) => el.querySelector(s);
   const CHAVE = 'aconchego-admin';
   const SITUACAO = {
-    paga: 'Paga', pendente: 'Aguardando pagamento', bloqueio: 'Bloqueio', conflito: 'Conflito: devolver',
+    paga: 'Paga', pedido: 'Pedido pelo WhatsApp', confirmada: 'Confirmada', pendente: 'Aguardando pagamento', bloqueio: 'Bloqueio', conflito: 'Conflito: devolver',
     cancelada: 'Cancelada', expirada: 'Expirada', estornada: 'Estornada', substituida: 'Substituída',
   };
   const MOTIVO = {
@@ -67,12 +67,14 @@
     cal.atualizar();
     configForm();
     tabela();
+    avisos();
   }
 
   async function recarregar() {
     dados = await api('GET', null, cal.mes);
     cal.atualizar();
     tabela();
+    avisos();
     const d = diaAberto && dados.dias.find((x) => x.data === diaAberto);
     if (d) editor(d);
   }
@@ -86,7 +88,8 @@
       estado: (data) => {
         const d = dados?.mes === data.slice(0, 7) && dados.dias.find((x) => x.data === data);
         if (!d) return { classe: 'is-carregando', rotulo: 'carregando', ativo: false };
-        let e = d.status === 'reservado' ? ['is-reservado', 'reservado']
+        let e = d.reserva?.status === 'pedido' ? ['is-pendente', 'pedido pelo WhatsApp']
+          : d.status === 'reservado' ? ['is-reservado', 'reservado']
           : d.status === 'pendente' ? ['is-pendente', 'aguardando pagamento']
             : d.status === 'livre' ? ['is-disponivel', 'aberto'] : ['is-indisponivel', 'fechado'];
         if (d.feriado || d.ajuste) e = [`${e[0]} tem-excecao`, `${e[1]}${d.feriado ? ', feriado' : ', com ajuste'}`];
@@ -124,6 +127,7 @@
       ${r ? `<div class="adm-periodo">
         <p class="adm-cliente"><b>${esc(r.nome)}</b>${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : ''}${r.convidados ? ` · ${r.convidados} convidados` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}<br>Reserva: ${quando(r)}</p>
         ${r.status === 'bloqueio' ? `<div><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Liberar bloqueio</button></div>` : ''}
+        ${r.status === 'pedido' ? `<div class="acoes"><button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar reserva</button><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Recusar pedido</button></div>` : ''}
       </div>` : ''}
       <div class="acoes"><button type="button" class="btn ${fechado ? 'btn-azul' : 'btn-linha c-azul'} btn-mini" data-rapido="${fechado ? 1 : 0}">${fechado ? 'Abrir este dia' : 'Fechar este dia'}</button></div>
       <label class="campo"><span>Este dia</span><select name="aberto">
@@ -180,21 +184,22 @@
     } else if (b.hasAttribute('data-bloquear')) {
       const f = form.elements;
       acaoDia({ acao: 'bloquear', inicio: diaAberto, dias: f.bdias.value, nome: f.bnome.value, whatsapp: f.bwhats.value, valor: f.bvalor.value }, 'Data bloqueada.');
-    } else if (b.dataset.liberar) acaoDia({ acao: 'cancelar', id: b.dataset.liberar }, 'Bloqueio liberado.');
+    } else if (b.dataset.confirmar) acaoDia({ acao: 'confirmar', id: b.dataset.confirmar }, 'Reserva confirmada.');
+    else if (b.dataset.liberar) acaoDia({ acao: 'cancelar', id: b.dataset.liberar }, 'Dias liberados.');
   });
 
   /* ── 2. Lista de reservas ── */
   function tabela() {
     const filtro = $('#adm-filtro').value;
     let lista = dados.reservas;
-    if (filtro === 'proximas') lista = lista.filter((r) => r.fim >= dados.hoje && ['paga', 'pendente', 'bloqueio', 'conflito'].includes(r.situacao));
+    if (filtro === 'proximas') lista = lista.filter((r) => r.fim >= dados.hoje && ['paga', 'pedido', 'confirmada', 'pendente', 'bloqueio', 'conflito'].includes(r.situacao));
     else if (filtro !== 'todas') lista = lista.filter((r) => r.situacao === filtro);
     const caixa = $('#adm-reservas');
     if (!lista.length) { caixa.innerHTML = '<p class="adm-vazio">Nenhuma reserva aqui.</p>'; return; }
     caixa.innerHTML = `<table class="adm-tabela">
       <thead><tr><th scope="col">Data</th><th scope="col">Cliente</th><th scope="col">WhatsApp</th><th scope="col">Conv.</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
       <tbody>${lista.map((r) => {
-        const pode = ['paga', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
+        const pode = ['paga', 'pedido', 'confirmada', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
         return `<tr>
           <td><b>${quando(r)}</b><br><small>${SEMANA[diaSemana(r.inicio)]}${r.inicio !== r.fim ? ` a ${SEMANA[diaSemana(r.fim)].toLowerCase()}` : ''}</small></td>
           <td>${esc(r.nome)}${r.obs ? `<br><small>${esc(r.obs)}</small>` : ''}</td>
@@ -202,7 +207,7 @@
           <td>${r.convidados ?? '-'}</td>
           <td>${r.valor ? reais(r.valor_pago ?? r.valor) : '-'}${r.detalhe ? `<br><small>${esc(r.detalhe)}</small>` : ''}</td>
           <td><span class="selo is-${esc(r.situacao)}">${SITUACAO[r.situacao] || esc(r.situacao)}</span></td>
-          <td>${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}</td>
+          <td class="acoes">${r.situacao === 'pedido' ? `<button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar</button>` : ''}${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}</td>
         </tr>`;
       }).join('')}</tbody></table>`;
   }
@@ -210,6 +215,13 @@
 
   // Cancelar pede um segundo clique para confirmar
   $('#adm-reservas').addEventListener('click', async (e) => {
+    const c = e.target.closest('[data-confirmar]');
+    if (c) {
+      c.disabled = true;
+      try { await api('POST', { acao: 'confirmar', id: c.dataset.confirmar }); await recarregar(); }
+      catch (err) { c.disabled = false; c.textContent = err.message; }
+      return;
+    }
     const b = e.target.closest('[data-cancelar]');
     if (!b) return;
     if (!b.dataset.certeza) {
@@ -223,6 +235,25 @@
     try { await api('POST', { acao: 'cancelar', id: b.dataset.cancelar }); await recarregar(); }
     catch (err) { b.disabled = false; b.textContent = err.message; }
   });
+
+  /* ── Avisos (pedidos novos, pagamentos, conflitos) ── */
+  function avisos() {
+    const lista = dados.avisos || [];
+    const novos = lista.filter((a) => !a.lido).length;
+    $('#avisos-n').textContent = novos ? `(${novos})` : '';
+    document.title = `${novos ? `(${novos}) ` : ''}Agenda · Aconchego Festas e Eventos`;
+    $('#avisos-lidos').hidden = !novos;
+    $('#adm-avisos').innerHTML = lista.length ? lista.map((a) => {
+      const [titulo, ...resto] = a.texto.split('\n');
+      const quandoFoi = new Date(a.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+      return `<li class="${a.lido ? '' : 'is-novo'}"><small>${esc(quandoFoi)}${a.lido ? '' : ' · novo'}</small><b>${esc(titulo)}</b><span>${esc(resto.join(' '))}</span></li>`;
+    }).join('') : '<li><span>Nenhum aviso ainda. Pedidos e pagamentos novos aparecem aqui.</span></li>';
+  }
+  $('#avisos-lidos').addEventListener('click', async () => {
+    try { await api('POST', { acao: 'lidos' }); await recarregar(); } catch { /* tenta de novo depois */ }
+  });
+  // Confere novidades a cada 2 minutos enquanto o painel está aberto
+  setInterval(() => { if (senha && !document.hidden && cal) recarregar().catch(() => {}); }, 120000);
 
   /* ── 3. Preços e regras ── */
   const cfgForm = $('#adm-config');

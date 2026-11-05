@@ -109,7 +109,7 @@ export function montarDia(data, { config, ajustes, ocupacao, hoje, admin = false
   const dia = { data, status, preco, feriado, especial };
   if (admin) {
     Object.assign(dia, { motivo, nomeFeriado, ajuste: ajustes[data] || null });
-    if (oc) dia.reserva = { id: oc.id, status: oc.expira_em ? 'pendente' : oc.status, nome: oc.nome, whatsapp: oc.whatsapp, convidados: oc.convidados, valor: oc.valor, inicio: oc.inicio, fim: oc.fim };
+    if (oc) dia.reserva = { id: oc.id, status: oc.status, nome: oc.nome, whatsapp: oc.whatsapp, convidados: oc.convidados, valor: oc.valor, inicio: oc.inicio, fim: oc.fim };
   }
   return dia;
 }
@@ -135,4 +135,4 @@ export function calcularPreco(dias, config) {
 }
 
 /* Situação mostrada: pendente vencida aparece como "expirada" */
-export const situacao = (r, agora = Date.now()) => (r.status === 'pendente' && r.expira_em <= agora ? 'expirada' : r.status);
+export const situacao = (r, agora = Date.now()) => (['pendente', 'pedido'].includes(r.status) && r.expira_em <= agora ? 'expirada' : r.status);

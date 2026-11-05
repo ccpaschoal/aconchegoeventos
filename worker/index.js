@@ -8,8 +8,12 @@ import {
   lerConfig, lerAjustes, lerOcupacao, montarDia, calcularPreco, situacao, novoId, CONFIG_PADRAO,
 } from './regras.js';
 import {
-  modoMP, criarPreferencia, buscarPagamento, assinaturaValida, iguais, enviarEmail, enviarWhatsApp, textoAlerta,
+  modoMP, criarPreferencia, buscarPagamento, assinaturaValida, iguais, enviarEmail, enviarWhatsApp, textoAlerta, titulo, quando,
 } from './servicos.js';
+
+/* Sem Access Token do Mercado Pago, a reserva vira um pedido pelo WhatsApp do salão (a data fica guardada por HORAS_PEDIDO) */
+const temMP = (env) => !!(modoMP(env) === 'teste' ? env.MP_ACCESS_TOKEN_TESTE : env.MP_ACCESS_TOKEN);
+const HORAS_PEDIDO = 24;
 
 const ORIGENS = ['https://ccpaschoal.github.io']; // versão do GitHub Pages também usa esta API
 const cors = (req) => {
@@ -33,12 +37,13 @@ async function disponibilidade(req, env) {
   });
   return json({
     mes, hoje, de: hoje.slice(0, 7), ate: somaMeses(hoje.slice(0, 7), config.mesesAFrente),
-    maxConvidados: config.maxConvidados, maxDias: config.maxDias, precoPacote: config.precoPacote, dias,
+    maxConvidados: config.maxConvidados, maxDias: config.maxDias, precoPacote: config.precoPacote,
+    pagamento: temMP(env) ? 'mercadopago' : 'whatsapp', horasPedido: HORAS_PEDIDO, dias,
   }, 200, cors(req));
 }
 
 /* ── Criar reserva ── */
-async function criarReserva(req, env) {
+async function criarReserva(req, env, ctx) {
   const h = cors(req);
   let b;
   try { b = await req.json(); } catch { return json({ erro: 'Dados inválidos.' }, 400, h); }
@@ -66,7 +71,7 @@ async function criarReserva(req, env) {
 
   // A mesma pessoa tentando de novo (voltou do erro do cartão) não fica presa na própria reserva pendente
   const { results: minhas } = await db.prepare(`SELECT DISTINCT r.id FROM reservas r JOIN ocupacao o ON o.reserva_id = r.id
-    WHERE r.status = 'pendente' AND r.whatsapp = ? AND o.expira_em > ? AND o.data BETWEEN ? AND ?`).bind(whatsapp, agora, inicio, fim).all();
+    WHERE r.status IN ('pendente', 'pedido') AND r.whatsapp = ? AND o.expira_em > ? AND o.data BETWEEN ? AND ?`).bind(whatsapp, agora, inicio, fim).all();
   if (minhas.length) {
     await db.batch(minhas.flatMap(({ id }) => [
       db.prepare("UPDATE reservas SET status = 'substituida' WHERE id = ?").bind(id),
@@ -81,19 +86,36 @@ async function criarReserva(req, env) {
   if (!(total > 0)) return json({ erro: 'Data sem preço definido.' }, 409, h);
 
   const id = novoId(inicio);
-  const expira = agora + MIN_SEGURA * 60e3;
+  const pedido = !temMP(env);
+  const expira = agora + (pedido ? HORAS_PEDIDO * 3600e3 : MIN_SEGURA * 60e3);
   // Tudo ou nada: a chave primária de ocupacao.data impede duas reservas no mesmo dia
   try {
     await db.batch([
       db.prepare(`DELETE FROM ocupacao WHERE data BETWEEN ? AND ? AND expira_em IS NOT NULL AND expira_em <= ?`).bind(inicio, fim, agora),
       ...datas.map((d) => db.prepare('INSERT INTO ocupacao (data, reserva_id, expira_em) VALUES (?, ?, ?)').bind(d, id, expira)),
       db.prepare(`INSERT INTO reservas (id, inicio, fim, datas, nome, whatsapp, convidados, valor, detalhe, status, criada_em, expira_em, ambiente)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?)`)
-        .bind(id, inicio, fim, JSON.stringify(datas), nome, whatsapp, convidados, total, detalhe, agora, expira, modoMP(env)),
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(id, inicio, fim, JSON.stringify(datas), nome, whatsapp, convidados, total, detalhe,
+          pedido ? 'pedido' : 'pendente', agora, expira, pedido ? 'whatsapp' : modoMP(env)),
     ]);
   } catch (e) {
     if (/UNIQUE|constraint/i.test(e?.message || '')) return json({ erro: OCUPADO }, 409, h);
     throw e;
+  }
+
+  if (pedido) {
+    const r = await db.prepare('SELECT * FROM reservas WHERE id = ?').bind(id).first();
+    ctx.waitUntil(avisar(env, r).catch((e) => console.error('avisar:', e.message)));
+    const texto = [
+      'Olá! Quero reservar o Aconchego:',
+      `${quando(r)} · ${nDias} ${nDias === 1 ? 'diária' : 'diárias'}`,
+      `Valor: R$ ${total.toFixed(2).replace('.', ',')} (${detalhe})`,
+      `Nome: ${nome}`,
+      `Convidados: ${convidados}`,
+      `Código: ${id}`,
+    ].join('\n');
+    const wa = `https://wa.me/${String(env.WHATSAPP_SALAO || '5562994127148').replace(/\D/g, '')}?text=${encodeURIComponent(texto)}`;
+    return json({ id, whatsapp: wa, expiraEm: new Date(expira).toISOString(), valor: total }, 200, h);
   }
 
   const base = (env.SITE_URL || new URL(req.url).origin).replace(/\/$/, '');
@@ -138,6 +160,9 @@ async function avisar(env, r) {
   const chave = `${r.id}_${r.status}`;
   const trava = await env.DB.prepare('INSERT INTO alertas (chave, em) VALUES (?, ?) ON CONFLICT(chave) DO NOTHING').bind(chave, Date.now()).run();
   if (!trava.meta.changes) return; // já avisado
+  const valor = `R$ ${Number(r.valor_pago ?? r.valor).toFixed(2).replace('.', ',')}`;
+  await env.DB.prepare('INSERT INTO avisos (chave, em, tipo, texto, reserva_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT(chave) DO NOTHING')
+    .bind(chave, Date.now(), r.status, `${titulo(r)}\n${r.nome} · ${quando(r)} · ${valor}${r.whatsapp ? ` · WhatsApp ${r.whatsapp}` : ''}`, r.id).run();
   const [email, whats] = await Promise.all([enviarEmail(env, r), enviarWhatsApp(env, textoAlerta(r))]);
   console.log('alertas', r.id, { email, whats });
   if (email !== true && whats !== true && (email === false || whats === false)) {
@@ -218,12 +243,13 @@ async function admin(req, env) {
     const pedido = new URL(req.url).searchParams.get('mes');
     const mes = RE_MES.test(pedido || '') ? pedido : hoje.slice(0, 7);
     const de = `${mes}-01`, ate = fimDoMes(mes);
-    const [config, ajustes, ocupacao, lista] = await Promise.all([
+    const [config, ajustes, ocupacao, lista, avisos] = await Promise.all([
       lerConfig(db), lerAjustes(db, de, ate), lerOcupacao(db, de, ate, agora),
       db.prepare('SELECT * FROM reservas WHERE fim >= ? ORDER BY inicio, criada_em').bind(somaDias(hoje, -30)).all(),
+      db.prepare('SELECT * FROM avisos ORDER BY em DESC LIMIT 50').all(),
     ]);
     return json({
-      mes, hoje, config,
+      mes, hoje, config, avisos: avisos.results, pagamento: temMP(env) ? 'mercadopago' : 'whatsapp',
       dias: intervalo(de, ate).map((data) => montarDia(data, { config, ajustes, ocupacao, hoje, admin: true })),
       reservas: lista.results.map((r) => ({ ...r, situacao: situacao(r, agora) })),
     });
@@ -291,6 +317,32 @@ async function admin(req, env) {
     return json({ ok: true, id });
   }
 
+  if (b.acao === 'lidos') {
+    await db.prepare('UPDATE avisos SET lido = 1 WHERE lido = 0').run();
+    return json({ ok: true });
+  }
+
+  // Pedido acertado com o cliente pelo WhatsApp: os dias ficam reservados de vez
+  if (b.acao === 'confirmar') {
+    if (!RE_ID.test(b.id || '')) return json({ erro: 'Reserva inválida.' }, 400);
+    const r = await db.prepare('SELECT * FROM reservas WHERE id = ?').bind(b.id).first();
+    if (!r || !['pedido', 'pendente'].includes(r.status)) return json({ erro: 'Só dá para confirmar pedidos em aberto.' }, 400);
+    const agora = Date.now();
+    const datas = JSON.parse(r.datas);
+    await db.batch([
+      db.prepare('DELETE FROM ocupacao WHERE data BETWEEN ? AND ? AND reserva_id <> ? AND expira_em IS NOT NULL AND expira_em <= ?').bind(r.inicio, r.fim, r.id, agora),
+      ...datas.map((d) => db.prepare(`INSERT INTO ocupacao (data, reserva_id, expira_em) VALUES (?, ?, NULL)
+        ON CONFLICT(data) DO UPDATE SET expira_em = NULL WHERE ocupacao.reserva_id = excluded.reserva_id`).bind(d, r.id)),
+    ]);
+    const n = (await db.prepare('SELECT COUNT(*) AS n FROM ocupacao WHERE reserva_id = ? AND expira_em IS NULL').bind(r.id).first()).n;
+    if (n !== datas.length) {
+      await db.prepare('UPDATE ocupacao SET expira_em = ? WHERE reserva_id = ?').bind(r.expira_em, r.id).run();
+      return json({ erro: 'Algum desses dias já foi reservado por outra pessoa.' }, 409);
+    }
+    await db.prepare("UPDATE reservas SET status = 'confirmada', expira_em = NULL WHERE id = ?").bind(r.id).run();
+    return json({ ok: true });
+  }
+
   if (b.acao === 'cancelar') {
     if (!RE_ID.test(b.id || '')) return json({ erro: 'Reserva inválida.' }, 400);
     const r = await db.prepare('SELECT status FROM reservas WHERE id = ?').bind(b.id).first();
@@ -316,14 +368,14 @@ const ROTAS = {
 };
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(req) });
     const rota = ROTAS[`${req.method} ${url.pathname.replace(/\/$/, '')}`];
     if (!rota) return json({ erro: 'Não encontrado.' }, 404);
     try {
-      return await rota(req, env);
+      return await rota(req, env, ctx);
     } catch (e) {
       console.error(url.pathname, e?.stack || e);
       return json({ erro: 'Erro no servidor. Tente de novo.' }, 500, cors(req));

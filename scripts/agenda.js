@@ -187,6 +187,7 @@
   let info = null;      // última resposta da API (limites, pacote, máximo de dias)
   let lista = [];       // opções de dias para o dia clicado
   let intervalo = null; // opção escolhida { inicio, fim, datas, n, total, pacote, feriado }
+  let TXT_BTN = 'Avançar para pagamento';
 
   const aviso = (t) => { msg.innerHTML = t; };
   const foraDoAr = () => aviso(`A agenda online não respondeu agora.${WPP ? ` <a href="${WPP}" target="_blank" rel="noopener">Reserve pelo WhatsApp</a>.` : ''}`);
@@ -223,7 +224,14 @@
     raiz.setAttribute('aria-busy', 'true');
     try {
       const j = await buscar(mes);
-      if (!info) { cal.limites(j.de, j.ate); campo('convidados').max = j.maxConvidados; }
+      if (!info) {
+        cal.limites(j.de, j.ate);
+        campo('convidados').max = j.maxConvidados;
+        if (j.pagamento === 'whatsapp') {
+          btn.textContent = TXT_BTN = 'Enviar pedido pelo WhatsApp';
+          form.querySelector('.agenda-nota').textContent = `Você confirma a reserva e combina o pagamento com a gente pelo WhatsApp. A data fica guardada por ${j.horasPedido} horas.`;
+        }
+      }
       info = j;
       if (msg.textContent.startsWith('A agenda online')) aviso('');
     } catch {
@@ -330,7 +338,7 @@
     if (!valida()) return;
     const escolha = intervalo;
     btn.disabled = true;
-    btn.textContent = 'Abrindo pagamento…';
+    btn.textContent = j0Texto();
     try {
       const r = await fetch(`${API}/criar-reserva`, {
         method: 'POST',
@@ -341,7 +349,7 @@
         }),
       }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};
-      if (!r || !r.ok || !j.init_point) {
+      if (!r || !r.ok || !(j.init_point || j.whatsapp)) {
         if (r?.status === 409) {
           await Promise.all([...new Set(escolha.datas.map((d) => d.slice(0, 7)))].map((m) => carregar(m, true)));
           if (diaDe(cal.escolhido)?.status === 'disponivel') await escolherDia(cal.escolhido);
@@ -355,14 +363,24 @@
           horario: '', valor: j.valor ?? escolha.total, link: j.init_point, expiraEm: j.expiraEm,
         }));
       } catch { /* sem armazenamento: as páginas de retorno funcionam sem o resumo */ }
+      if (j.whatsapp) {
+        // Pedido registrado: a data fica guardada e o cliente segue para o WhatsApp do salão
+        resumo.textContent = `Pedido registrado! ${nomeOpcao(escolha)} fica guardado para você. Abrindo o WhatsApp…`;
+        btn.textContent = 'Abrir o WhatsApp de novo';
+        btn.disabled = false;
+        btn.onclick = (ev) => { ev.preventDefault(); location.href = j.whatsapp; };
+        location.href = j.whatsapp;
+        return;
+      }
       location.href = j.init_point;
     } catch (err) {
       aviso(esc(err.message));
-      btn.textContent = 'Avançar para pagamento';
+      btn.textContent = TXT_BTN;
       btn.disabled = !intervalo;
     }
   });
 
+  const j0Texto = () => (info?.pagamento === 'whatsapp' ? 'Registrando pedido…' : 'Abrindo pagamento…');
   carregar(cal.mes);
 
   // Voltando de erro.html (index.html#reservar), abre direto a tela de reserva
