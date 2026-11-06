@@ -214,8 +214,17 @@ async function webhook(req, env) {
       const datas = JSON.parse(r.datas);
       let pegou = 0;
       if (r.status !== 'cancelada') {
+        // A pessoa tentou de novo (nova reserva pendente) mas pagou o link antigo: libera os dias que estavam
+        // guardados para ela mesma (mesmo WhatsApp), para o pagamento não virar conflito à toa
+        const minhas = r.whatsapp ? (await db.prepare(`SELECT DISTINCT o.reserva_id AS id FROM ocupacao o JOIN reservas x ON x.id = o.reserva_id
+          WHERE o.data BETWEEN ? AND ? AND o.reserva_id <> ? AND o.expira_em IS NOT NULL
+            AND x.status IN ('pendente', 'pedido') AND x.whatsapp = ?`).bind(r.inicio, r.fim, id, r.whatsapp).all()).results : [];
         // Confirma os dias: tira pendências vencidas de outras pessoas e firma os dias que ainda são desta reserva ou estão livres
         await db.batch([
+          ...minhas.flatMap(({ id: outra }) => [
+            db.prepare("UPDATE reservas SET status = 'substituida' WHERE id = ?").bind(outra),
+            db.prepare('DELETE FROM ocupacao WHERE reserva_id = ?').bind(outra),
+          ]),
           db.prepare(`DELETE FROM ocupacao WHERE data BETWEEN ? AND ? AND reserva_id <> ? AND expira_em IS NOT NULL AND expira_em <= ?`).bind(r.inicio, r.fim, id, agora),
           ...datas.map((d) => db.prepare(`INSERT INTO ocupacao (data, reserva_id, expira_em) VALUES (?, ?, NULL)
             ON CONFLICT(data) DO UPDATE SET expira_em = NULL WHERE ocupacao.reserva_id = excluded.reserva_id`).bind(d, id)),
@@ -285,7 +294,7 @@ async function admin(req, env) {
   if (b.acao === 'config') {
     const c = b.config || {};
     const precos = ['precoDiaria', 'precoFeriado', 'precoPacote'].map((k) => dinheiro(c[k]));
-    if (precos.includes(null)) return json({ erro: 'Confira os preços.' }, 400);
+    if (precos.some((p) => p === null || p <= 0)) return json({ erro: 'Os preços precisam ser maiores que zero.' }, 400);
     const config = {
       precoDiaria: precos[0], precoFeriado: precos[1], precoPacote: precos[2],
       semana: Array.from({ length: 7 }, (_, i) => !!c.semana?.[i]),
@@ -405,8 +414,6 @@ export default {
       return json({ erro: 'Erro no servidor. Tente de novo.' }, 500, cors(req));
     }
   },
-  // Uma vez por dia limpa pendências vencidas (a agenda já ignora as vencidas)
-  async scheduled(_evento, env) {
-    await env.DB.prepare('DELETE FROM ocupacao WHERE expira_em IS NOT NULL AND expira_em <= ?').bind(Date.now()).run();
-  },
 };
+// Pendências vencidas não precisam de limpeza agendada: a agenda ignora as vencidas e cada nova reserva
+// apaga as que estiverem no caminho (Cloudflare Pages não roda tarefas agendadas).

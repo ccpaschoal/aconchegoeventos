@@ -1,11 +1,10 @@
 /* Aconchego · painel da dona (admin.html).
    A senha só fica na sessão deste navegador e é conferida pela API (/api/admin). */
 (() => {
-  const { dataLonga, reais, esc, hojeLocal, SEMANA } = window.AconchegoData;
+  const { dataLonga, dataCurta, diaSem: diaSemana, reais, esc, fone, hojeLocal, SEMANA, buscarJSON } = window.Aconchego;
   const $ = (s, el = document) => el.querySelector(s);
   const CHAVE = 'aconchego-admin';
-  // Aberto pelo GitHub Pages, o painel fala com a API da Cloudflare
-  const API = location.hostname.endsWith('github.io') ? 'https://aconchegoeventos.pages.dev/api' : '/api';
+  const API = window.Aconchego.api();
   const SITUACAO = {
     paga: 'Paga', pedido: 'Pedido pelo WhatsApp', confirmada: 'Confirmada', pendente: 'Aguardando pagamento', bloqueio: 'Bloqueio', conflito: 'Conflito: devolver',
     cancelada: 'Cancelada', expirada: 'Expirada', estornada: 'Estornada', substituida: 'Substituída',
@@ -16,9 +15,6 @@
     janela: 'Além do limite da agenda: ainda não aparece no site.',
     fechado: 'Dia fechado para reservas.',
   };
-  const fone = (n = '') => (n.length >= 10 ? `(${n.slice(0, 2)}) ${n.slice(2, -4)}-${n.slice(-4)}` : n);
-  const dataCurta = (s) => s.split('-').reverse().join('/');
-  const diaSemana = (s) => { const [a, m, d] = s.split('-').map(Number); return new Date(Date.UTC(a, m - 1, d)).getUTCDay(); };
   const quando = (r) => (r.inicio === r.fim ? dataCurta(r.inicio) : `${dataCurta(r.inicio)} a ${dataCurta(r.fim)}`);
   const tri = (v) => (v === '1' ? true : v === '0' ? false : null);
   const sel = (v, alvo) => (v === alvo ? ' selected' : '');
@@ -30,13 +26,13 @@
   let cal = null;
 
   async function api(metodo, corpo, mes) {
-    const r = await fetch(`${API}/admin${mes ? `?mes=${mes}` : ''}`, {
+    const { r, j } = await buscarJSON(`${API}/admin${mes ? `?mes=${mes}` : ''}`, {
       method: metodo,
       headers: { Authorization: `Bearer ${encodeURIComponent(senha)}`, ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
       body: corpo ? JSON.stringify(corpo) : undefined,
-    }).catch(() => null);
-    if (!r) throw new Error('Sem conexão com o servidor.');
-    const j = await r.json().catch(() => ({}));
+    }).catch(() => ({ r: null, j: {} }));
+    if (!r) throw new Error('Sem conexão com o servidor. Confira a internet e tente de novo.');
+    // Só a senha errada tira a dona do painel; queda de internet ou erro do servidor não
     if (r.status === 401) { sair(); throw new Error(j.erro || 'Senha incorreta.'); }
     if (!r.ok) throw new Error(j.erro || 'Erro ao falar com o servidor.');
     return j;
@@ -72,13 +68,25 @@
     avisos();
   }
 
+  // Ao redesenhar o painel, o botão focado é recriado: guarda qual era para devolver o foco a ele
+  const ATRIBUTOS_FOCO = ['data-confirmar', 'data-cancelar', 'data-liberar', 'data-rapido', 'data-bloquear', 'name'];
+  function lembrarFoco() {
+    const el = document.activeElement;
+    if (!el || !el.closest('#adm-dia, #adm-reservas')) return null;
+    const attr = ATRIBUTOS_FOCO.find((a) => el.hasAttribute(a));
+    return attr ? `${el.closest('#adm-dia') ? '#adm-dia' : '#adm-reservas'} [${attr}="${CSS.escape(el.getAttribute(attr))}"]` : null;
+  }
+  const devolverFoco = (seletor) => { if (seletor) $(seletor)?.focus({ preventScroll: true }); };
+
   async function recarregar(manterEditor = false) {
+    const foco = lembrarFoco();
     dados = await api('GET', null, cal.mes);
     cal.atualizar();
     tabela();
     avisos();
     const d = diaAberto && dados.dias.find((x) => x.data === diaAberto);
     if (d && !manterEditor) editor(d);
+    devolverFoco(foco);
   }
 
   /* ── 1. Calendário + editor do dia ── */
@@ -97,7 +105,7 @@
         if (d.feriado || d.ajuste) e = [`${e[0]} tem-excecao`, `${e[1]}${d.feriado ? ', feriado' : ', com ajuste'}`];
         return { classe: e[0], rotulo: e[1], ativo: true };
       },
-      aoMes: async () => { try { await recarregar(); } catch (err) { avisoDia(err.message); } },
+      aoMes: async () => { try { await recarregar(); $('#adm-msg').textContent = ''; } catch (err) { avisoDia(err.message); } },
       aoEscolher: (data) => {
         diaAberto = data;
         const d = dados.dias.find((x) => x.data === data);
@@ -107,9 +115,11 @@
   }
 
   const form = $('#adm-dia');
+  // Sem dia aberto, o aviso vai para a mensagem fixa acima do calendário
   const avisoDia = (t, ok) => {
     const m = $('.agenda-msg', form), o = $('.adm-ok', form);
-    if (m) m.textContent = ok ? '' : t;
+    if (!m) { $('#adm-msg').textContent = ok ? '' : t; return; }
+    m.textContent = ok ? '' : t;
     if (o) o.textContent = ok ? t : '';
   };
 
@@ -127,7 +137,7 @@
       <div class="adm-periodo-topo"><span class="selo is-${seloCls}">${esc(seloTxt)}</span>${d.feriado ? `<span class="selo">Feriado${d.nomeFeriado ? `: ${esc(d.nomeFeriado)}` : ''}</span>` : ''}</div>
       ${MOTIVO[d.motivo] ? `<p class="nota">${MOTIVO[d.motivo]}</p>` : ''}
       ${r ? `<div class="adm-periodo">
-        <p class="adm-cliente"><b>${esc(r.nome)}</b>${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}<br>Reserva: ${quando(r)}</p>
+        <p class="adm-cliente"><b>${esc(r.nome)}</b>${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${esc(fone(r.whatsapp))}</a>` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}<br>Reserva: ${esc(quando(r))}</p>
         ${r.status === 'bloqueio' ? `<div><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Liberar bloqueio</button></div>` : ''}
         ${r.status === 'pedido' ? `<div class="acoes"><button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar reserva</button><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Recusar pedido</button></div>` : ''}
       </div>` : ''}
@@ -142,7 +152,7 @@
         <option value="1"${sel(aj.feriado, 1)}>É feriado</option>
         <option value="0"${sel(aj.feriado, 0)}>Não é feriado</option>
       </select></label>
-      <label class="campo"><span>Preço só desta data (R$)</span><input type="number" min="0" step="1" inputmode="decimal" name="preco" value="${aj.preco ?? ''}" placeholder="Padrão: ${reais(valorAuto)}"></label>
+      <label class="campo"><span>Preço só desta data (R$)</span><input type="number" min="0" step="1" inputmode="decimal" name="preco" value="${esc(aj.preco ?? '')}" placeholder="Padrão: ${reais(valorAuto)}"></label>
       <p class="agenda-msg" role="alert"></p>
       <p class="adm-ok" role="status"></p>
       <div class="acoes"><button class="btn btn-azul" type="submit">Salvar este dia</button></div>
@@ -165,12 +175,23 @@
     preco: form.elements.preco.value,
   });
 
+  // Trava os botões do dia enquanto envia: clique duplo não manda o mesmo pedido duas vezes
+  let enviando = false;
   async function acaoDia(corpo, ok) {
+    if (enviando) return;
+    enviando = true;
+    const botoes = [...form.querySelectorAll('button')];
+    botoes.forEach((b) => { b.disabled = true; });
     try {
       await api('POST', corpo);
       await recarregar();
       avisoDia(ok, true);
-    } catch (err) { avisoDia(err.message); }
+    } catch (err) {
+      avisoDia(err.message);
+    } finally {
+      enviando = false;
+      botoes.forEach((b) => { if (b.isConnected) b.disabled = false; });
+    }
   }
 
   form.addEventListener('submit', (e) => { e.preventDefault(); if (diaAberto) acaoDia(lerDia(), 'Dia salvo.'); });
@@ -203,9 +224,9 @@
       <tbody>${lista.map((r) => {
         const pode = ['paga', 'pedido', 'confirmada', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
         return `<tr>
-          <td><b>${quando(r)}</b><br><small>${SEMANA[diaSemana(r.inicio)]}${r.inicio !== r.fim ? ` a ${SEMANA[diaSemana(r.fim)].toLowerCase()}` : ''}</small></td>
+          <td><b>${esc(quando(r))}</b><br><small>${SEMANA[diaSemana(r.inicio)]}${r.inicio !== r.fim ? ` a ${SEMANA[diaSemana(r.fim)].toLowerCase()}` : ''}</small></td>
           <td>${esc(r.nome)}${r.obs ? `<br><small>${esc(r.obs)}</small>` : ''}</td>
-          <td>${r.whatsapp ? `<a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : '-'}</td>
+          <td>${r.whatsapp ? `<a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${esc(fone(r.whatsapp))}</a>` : '-'}</td>
           <td>${r.valor ? reais(r.valor_pago ?? r.valor) : '-'}${r.detalhe ? `<br><small>${esc(r.detalhe)}</small>` : ''}</td>
           <td><span class="selo is-${esc(r.situacao)}">${SITUACAO[r.situacao] || esc(r.situacao)}</span></td>
           <td class="acoes">${r.situacao === 'pedido' ? `<button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar</button>` : ''}${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}</td>
@@ -218,6 +239,7 @@
   $('#adm-reservas').addEventListener('click', async (e) => {
     const c = e.target.closest('[data-confirmar]');
     if (c) {
+      if (c.disabled) return;
       c.disabled = true;
       try { await api('POST', { acao: 'confirmar', id: c.dataset.confirmar }); await recarregar(); }
       catch (err) { c.disabled = false; c.textContent = err.message; }
@@ -273,7 +295,23 @@
     e.preventDefault();
     $('#cfg-msg').textContent = '';
     $('#cfg-ok').textContent = '';
-    const config = Object.fromEntries(CAMPOS.map((k) => [k, Number(cfgForm.elements[k].value || 0)]));
+    // Campo vazio não vira R$ 0: com preço zerado o site recusaria todas as reservas
+    const config = {};
+    for (const k of CAMPOS) {
+      const el = cfgForm.elements[k];
+      const valor = el.value.trim();
+      const minimo = k.startsWith('preco') ? 1 : Number(el.min || 0);
+      if (valor === '' || !Number.isFinite(Number(valor)) || Number(valor) < minimo) {
+        $('#cfg-msg').textContent = k.startsWith('preco')
+          ? 'Preencha todos os preços com valores maiores que zero.'
+          : 'Preencha todos os campos com números válidos.';
+        el.setAttribute('aria-invalid', 'true');
+        el.focus();
+        return;
+      }
+      el.removeAttribute('aria-invalid');
+      config[k] = Number(valor);
+    }
     config.semana = SEMANA.map((_, i) => cfgForm.elements[`semana-${i}`].checked);
     try {
       await api('POST', { acao: 'config', config });
@@ -283,5 +321,11 @@
     } catch (err) { $('#cfg-msg').textContent = err.message; }
   });
 
-  if (senha) entrar().catch(() => sair());
+  // Senha guardada na sessão: se a internet falhar, mostra o motivo em vez de sair calado
+  if (senha) {
+    entrar().catch((err) => {
+      $('#login').hidden = false;
+      $('#login-msg').textContent = err.message;
+    });
+  }
 })();

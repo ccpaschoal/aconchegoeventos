@@ -32,7 +32,7 @@
 .cal-dia.is-disponivel:hover { transform: translate(-2px, -2px); box-shadow: 2px 2px 0 var(--marinho); }
 .is-reservado { background: repeating-linear-gradient(135deg, var(--marinho) 0 5px, #174A63 5px 10px); color: rgba(255, 255, 255, .82); }
 .cal-dia.is-reservado { text-decoration: line-through; text-decoration-thickness: 2px; }
-.is-indisponivel { background: transparent; border: 2px solid rgba(0, 46, 69, .16); color: rgba(12, 26, 36, .45); }
+.is-indisponivel { background: transparent; border: 2px solid rgba(0, 46, 69, .16); color: rgba(12, 26, 36, .7); }
 .is-pendente { background: repeating-linear-gradient(135deg, var(--azul-claro) 0 5px, #8CC2F8 5px 10px); color: var(--marinho); }
 .cal-dia.is-carregando { background: rgba(0, 46, 69, .07); color: transparent; animation: cal-pulsa 1.2s ease-in-out infinite; }
 @keyframes cal-pulsa { 50% { opacity: .45; } }
@@ -76,7 +76,7 @@
 .campo [aria-invalid="true"] { border-color: #B3261E; }
 .agenda-isca { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 .agenda-resumo { font-weight: 800; color: var(--marinho); }
-.agenda-resumo:empty, .agenda-msg:empty { display: none; }
+.agenda-resumo:empty, .agenda-msg:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .agenda-msg { font-size: .9rem; font-weight: 700; color: #B3261E; }
 .agenda-msg a { color: var(--azul); }
 .agenda-pagar { width: 100%; justify-content: center; }
@@ -144,7 +144,7 @@
 .adm-numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 600px) { .adm-numeros { grid-template-columns: minmax(0, 1fr); } }
 .adm-ok { font-weight: 700; color: var(--azul); }
-.adm-ok:empty { display: none; }
+.adm-ok:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .adm-avisos { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 360px; overflow-y: auto; }
 .adm-avisos li { display: grid; gap: 2px; padding: 12px 14px; background: rgba(255, 255, 255, .07); font-size: .9rem; }
 .adm-avisos li.is-novo { background: var(--branco); color: var(--marinho); border-left: 6px solid var(--azul); }
@@ -157,3 +157,6 @@
 .rodape .rodape-admin { flex-basis: 100%; font-weight: 600; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; opacity: .55; }
 .rodape .rodape-admin:hover, .rodape .rodape-admin:focus-visible { opacity: 1; }
 .adm-painel { gap: 20px; }
+
+/* botão com cara de link (ex.: "Tentar de novo" quando a agenda não carrega) */
+.link-btn { padding: 0; border: 0; background: none; color: var(--azul); font: inherit; text-decoration: underline; cursor: pointer; }

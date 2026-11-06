@@ -7,13 +7,12 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#070B10">
   <link rel="icon" href="assets/img/favicon.png" type="image/png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles/style.css?v=20261106a">
-  <link rel="stylesheet" href="styles/agenda.css?v=20261106a">
-  <script src="scripts/agenda.js?v=20261106a" defer></script>
-  <script src="scripts/admin.js?v=20261106a" defer></script>
+  <link rel="preload" href="assets/fonts/montserrat-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles/style.css?v=20261106b">
+  <link rel="stylesheet" href="styles/agenda.css?v=20261106b">
+  <script src="scripts/comum.js?v=20261106b" defer></script>
+  <script src="scripts/agenda.js?v=20261106b" defer></script>
+  <script src="scripts/admin.js?v=20261106b" defer></script>
 </head>
 <body class="pagina admin">
 <header class="topo">
@@ -29,7 +28,7 @@
 
 <main id="conteudo">
   <section class="screen marinho adm-login" id="login" aria-labelledby="login-titulo">
-    <form class="pilha pilha-16" id="form-login">
+    <form class="pilha pilha-16" id="form-login" method="post">
       <p class="eyebrow c-claro">Área da dona</p>
       <h1 class="display h2" id="login-titulo">Agenda de <span class="sub">reservas</span></h1>
       <label class="campo"><span>Senha</span><input type="password" name="senha" autocomplete="current-password" required></label>
@@ -54,12 +53,13 @@
       <div class="reservar-topo">
         <div class="pilha">
           <p class="eyebrow c-azul">1 · Agenda</p>
-          <h1 class="display h2 c-marinho" id="t-agenda">Abrir e fechar <span class="sub sub-azul">datas</span></h1>
+          <h2 class="display h2 c-marinho" id="t-agenda">Abrir e fechar <span class="sub sub-azul">datas</span></h2>
         </div>
         <p class="nota">Clique num dia para abrir ou fechar, marcar feriado, mudar o preço só daquela data ou bloquear uma reserva fechada pelo WhatsApp.</p>
       </div>
       <div class="agenda">
         <div class="agenda-cal">
+          <p class="agenda-msg" role="alert" id="adm-msg"></p>
           <div id="adm-cal"></div>
           <ul class="cal-legenda" aria-label="Legenda do calendário">
             <li><span class="cal-amostra is-disponivel"></span>Aberto</li>

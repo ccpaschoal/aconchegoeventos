@@ -28,15 +28,14 @@
   <link rel="icon" href="assets/img/favicon.png" type="image/png">
   <link rel="apple-touch-icon" href="assets/img/favicon.png">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="preload" href="assets/fonts/montserrat-latin.woff2" as="font" type="font/woff2" crossorigin>
 
   <!-- ?v= muda a cada atualização para o navegador não usar a versão antiga guardada -->
-  <link rel="stylesheet" href="styles/style.css?v=20261106a">
-  <link rel="stylesheet" href="styles/agenda.css?v=20261106a">
-  <script src="scripts/app.js?v=20261106a" defer></script>
-  <script src="scripts/agenda.js?v=20261106a" defer></script>
+  <link rel="stylesheet" href="styles/style.css?v=20261106b">
+  <link rel="stylesheet" href="styles/agenda.css?v=20261106b">
+  <script src="scripts/comum.js?v=20261106b" defer></script>
+  <script src="scripts/app.js?v=20261106b" defer></script>
+  <script src="scripts/agenda.js?v=20261106b" defer></script>
 </head>
 <body>
 <a class="pular" href="#conteudo">Pular para o conteúdo</a>
@@ -51,7 +50,7 @@
       <a class="link" href="#fotos">Fotos</a>
       <a class="link" href="#reservar">Reservar</a>
       <a class="link" href="#contato">Contato</a>
-      <span class="contador" id="contador" aria-live="polite"></span>
+      <span class="contador" id="contador"></span>
       <a class="btn btn-azul" href="https://wa.me/5562994127148?text=Ol%C3%A1!%20Gostaria%20de%20saber%20as%20datas%20dispon%C3%ADveis%20no%20Aconchego." target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="3" y="5" width="18" height="16"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
         <span>Reservar</span>
@@ -156,7 +155,7 @@
       </div>
       <p class="nota">Aluguel por diária, com preço especial em feriados e no pacote de fim de semana (sexta e sábado ou sábado e domingo). Escolha a data e veja o valor na hora.</p>
     </div>
-    <div class="agenda sobe" id="agenda" data-api="/api" data-api-externa="https://aconchegoeventos.pages.dev/api" data-whatsapp="https://wa.me/5562994127148?text=Ol%C3%A1!%20Gostaria%20de%20reservar%20uma%20data%20no%20Aconchego.">
+    <div class="agenda sobe" id="agenda" data-whatsapp="https://wa.me/5562994127148?text=Ol%C3%A1!%20Gostaria%20de%20reservar%20uma%20data%20no%20Aconchego.">
       <p class="agenda-fallback">Para ver as datas, ative o JavaScript ou <a class="c-azul" href="https://wa.me/5562994127148?text=Ol%C3%A1!%20Gostaria%20de%20reservar%20uma%20data%20no%20Aconchego." target="_blank" rel="noopener">reserve pelo WhatsApp</a>.</p>
     </div>
   </section>

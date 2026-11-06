@@ -3,21 +3,9 @@
    - #agenda na página principal: dia → período → dados → Mercado Pago
    Datas sempre em texto AAAA-MM-DD para não sofrer com fuso horário. */
 (() => {
-  const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-  const SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-  const pad = (n) => String(n).padStart(2, '0');
-  const partes = (s) => s.split('-').map(Number);
-  const utc = (s) => { const [a, m, d] = partes(s); return new Date(Date.UTC(a, m - 1, d || 1)); };
-  const somaDias = (s, n) => new Date(utc(s).getTime() + n * 864e5).toISOString().slice(0, 10);
-  const somaMeses = (mes, n) => { const [a, m] = partes(mes); return new Date(Date.UTC(a, m - 1 + n, 1)).toISOString().slice(0, 7); };
-  const diaSem = (s) => utc(s).getUTCDay();
-  const ultimoDia = (mes) => { const [a, m] = partes(mes); return new Date(Date.UTC(a, m, 0)).getUTCDate(); };
-  const nomeMes = (mes) => { const [a, m] = partes(mes); return `${MESES[m - 1]} ${a}`; };
-  const dataLonga = (s) => { const [, m, d] = partes(s); return `${SEMANA[diaSem(s)]}, ${d} de ${MESES[m - 1]}`; };
-  const reais = (v) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-  const hojeLocal = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  const seta = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="${d}"/></svg>`;
+  const {
+    MESES, SEMANA, SETA, pad, partes, somaDias, somaMeses, diaSem, ultimoDia, nomeMes, dataLonga, reais, esc, hojeLocal, seta, buscarJSON,
+  } = window.Aconchego;
   let uid = 0;
 
   /* ── Componente de calendário ──
@@ -30,9 +18,9 @@
     raiz.classList.add('cal');
     raiz.innerHTML = `
       <div class="cal-topo">
-        <button type="button" class="cal-nav" data-passo="-1" aria-label="Mês anterior">${seta('m15 18-6-6 6-6')}</button>
+        <button type="button" class="cal-nav" data-passo="-1" aria-label="Mês anterior">${seta(SETA.anterior)}</button>
         <h3 class="cal-mes" id="${id}-mes" aria-live="polite"></h3>
-        <button type="button" class="cal-nav" data-passo="1" aria-label="Próximo mês">${seta('m9 18 6-6-6-6')}</button>
+        <button type="button" class="cal-nav" data-passo="1" aria-label="Próximo mês">${seta(SETA.proxima)}</button>
       </div>
       <table class="cal-grade" role="grid" aria-labelledby="${id}-mes"${op.rotulo ? ` aria-describedby="${id}-dica"` : ''}>
         <thead><tr>${SEMANA.map((s) => `<th scope="col"><span aria-hidden="true">${s[0]}</span><span class="sr-only">${s}</span></th>`).join('')}</tr></thead>
@@ -128,14 +116,13 @@
   }
 
   window.AconchegoCalendario = Calendario;
-  window.AconchegoData = { somaMeses, dataLonga, nomeMes, reais, esc, hojeLocal, MESES, SEMANA };
 
   /* ── Reserva na página principal ──
      Aluguel por diária: o cliente escolhe um dia e depois quantos dias seguidos (até maxDias).
      A conta abaixo é só para mostrar; o valor cobrado é recalculado no servidor (worker/regras.js). */
   const raiz = document.getElementById('agenda');
   if (!raiz) return;
-  const API = (location.hostname.endsWith('github.io') && raiz.dataset.apiExterna) || raiz.dataset.api || '/api';
+  const API = window.Aconchego.api();
   const WPP = raiz.dataset.whatsapp || '';
   const ESTADOS = {
     disponivel: { classe: 'is-disponivel', rotulo: 'disponível', ativo: true },
@@ -166,7 +153,7 @@
         <label class="agenda-isca" aria-hidden="true">Não preencha <input name="site" tabindex="-1" autocomplete="off"></label>
       </fieldset>
       <p class="agenda-resumo" aria-live="polite"></p>
-      <p class="agenda-msg" role="alert"></p>
+      <p class="agenda-msg" role="alert" id="agenda-msg"></p>
       <button class="btn btn-azul agenda-pagar" type="submit" disabled>Avançar para pagamento</button>
       <p class="agenda-nota">Pix ou cartão pelo Mercado Pago. A data fica guardada por 30 minutos enquanto você paga.</p>
     </form>`;
@@ -187,7 +174,9 @@
   let TXT_BTN = 'Avançar para pagamento';
 
   const aviso = (t) => { msg.innerHTML = t; };
-  const foraDoAr = () => aviso(`A agenda online não respondeu agora.${WPP ? ` <a href="${WPP}" target="_blank" rel="noopener">Reserve pelo WhatsApp</a>.` : ''}`);
+  const FORA_DO_AR = 'A agenda online não respondeu agora.';
+  const foraDoAr = () => aviso(`${FORA_DO_AR} <button type="button" class="link-btn" data-tentar>Tentar de novo</button>${WPP ? ` ou <a href="${WPP}" target="_blank" rel="noopener">reserve pelo WhatsApp</a>.` : ''}`);
+  msg.addEventListener('click', (e) => { if (e.target.closest('[data-tentar]')) carregar(cal.mes, true); });
   const diaDe = (data) => cache[data.slice(0, 7)]?.dias.find((d) => d.data === data);
   const curta = (s) => { const [, m, d] = partes(s); return `${d}/${pad(m)}`; };
 
@@ -209,9 +198,8 @@
   });
 
   async function buscar(mes) {
-    const r = await fetch(`${API}/disponibilidade?mes=${mes}`, { headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error(r.status);
-    const j = await r.json();
+    const { r, j } = await buscarJSON(`${API}/disponibilidade?mes=${mes}`, { headers: { Accept: 'application/json' } });
+    if (!r.ok || !Array.isArray(j.dias)) throw new Error(r.status);
     cache[j.mes] = j;
     return j;
   }
@@ -229,7 +217,7 @@
         }
       }
       info = j;
-      if (msg.textContent.startsWith('A agenda online')) aviso('');
+      if (msg.textContent.startsWith(FORA_DO_AR)) aviso('');
     } catch {
       foraDoAr();
     } finally {
@@ -311,11 +299,21 @@
   function erroCampo(nome, texto) {
     const el = campo(nome);
     el.setAttribute('aria-invalid', 'true');
+    el.setAttribute('aria-describedby', 'agenda-msg'); // o leitor de tela lê o erro junto com o campo
     el.focus();
     aviso(esc(texto));
     return false;
   }
-  form.addEventListener('input', (e) => e.target.removeAttribute?.('aria-invalid'));
+  form.addEventListener('input', (e) => { e.target.removeAttribute?.('aria-invalid'); e.target.removeAttribute?.('aria-describedby'); });
+
+  // Só sai do site para o WhatsApp ou para o Mercado Pago, nunca para um endereço inesperado
+  const destinoSeguro = (url, tipo) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol !== 'https:') return false;
+      return tipo === 'whatsapp' ? u.hostname === 'wa.me' : /(^|\.)mercadopago\.com(\.br)?$/.test(u.hostname);
+    } catch { return false; }
+  };
 
   function valida() {
     const whats = campo('whatsapp').value.replace(/\D/g, '');
@@ -333,16 +331,16 @@
     btn.disabled = true;
     btn.textContent = j0Texto();
     try {
-      const r = await fetch(`${API}/criar-reserva`, {
+      const { r, j } = await buscarJSON(`${API}/criar-reserva`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inicio: escolha.inicio, dias: escolha.n, nome: campo('nome').value.trim(),
           whatsapp: campo('whatsapp').value, site: campo('site').value,
         }),
-      }).catch(() => null);
-      const j = r ? await r.json().catch(() => ({})) : {};
-      if (!r || !r.ok || !(j.init_point || j.whatsapp)) {
+      }, 30000).catch(() => ({ r: null, j: {} }));
+      const destino = j.whatsapp ? destinoSeguro(j.whatsapp, 'whatsapp') : destinoSeguro(j.init_point, 'mercadopago');
+      if (!r || !r.ok || !destino) {
         if (r?.status === 409) {
           await Promise.all([...new Set(escolha.datas.map((d) => d.slice(0, 7)))].map((m) => carregar(m, true)));
           if (diaDe(cal.escolhido)?.status === 'disponivel') await escolherDia(cal.escolhido);

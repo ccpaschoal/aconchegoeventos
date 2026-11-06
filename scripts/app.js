@@ -9,7 +9,7 @@
   const TELA = { escala: [1, .82, .68], opac: [1, .55, 0], brilho: [1, .7, .5], folga: 22 };
   const CARROSSEL = { dist: [0, .56, .98, 1.3], escala: [1, .74, .56, .44], opac: [1, .92, .6, 0], brilho: [1, .72, .58, .5] };
   const renders = [];
-  const pad2 = (n) => String(n).padStart(2, '0');
+  const { pad: pad2, seta: svgSeta, SETA } = window.Aconchego;
 
   /* ── Títulos letra por letra ──
      O texto inteiro fica num span invisível para leitores de tela; as letras animadas ficam escondidas deles. */
@@ -55,7 +55,7 @@
     b.type = 'button';
     b.className = 'cf-btn';
     b.setAttribute('aria-label', dir < 0 ? 'Anterior' : 'Próximo');
-    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="${dir < 0 ? 'm15 18-6-6 6-6' : 'm9 18 6-6-6-6'}"/></svg>`;
+    b.innerHTML = svgSeta(dir < 0 ? SETA.anterior : SETA.proxima);
     return b;
   };
 
@@ -106,7 +106,6 @@
         item.style.filter = ad ? `brightness(${CARROSSEL.brilho[ad]})` : 'none';
         item.style.zIndex = 10 - ad;
         item.style.visibility = Math.abs(d) > 3 ? 'hidden' : 'visible';
-        if (item.matches('a')) item.tabIndex = d === 0 ? 0 : -1;
       });
       conta.textContent = `${pad2(atual + 1)} / ${pad2(items.length)}`;
       barra.style.setProperty('--cf-p', `${((atual + 1) / items.length) * 100}%`);
@@ -187,13 +186,13 @@
     if (contador) contador.textContent = `${pad2(atual + 1)} / ${pad2(telas.length)}`;
   };
 
-  const go = (i) => {
+  const go = (i, { deFoco = false } = {}) => {
     const alvo = Math.max(0, Math.min(telas.length - 1, i));
     if (alvo === atual) return;
     atual = alvo;
     travado = true;
     render();
-    telas[atual].scrollTop = 0;
+    if (!deFoco) telas[atual].scrollTop = 0;
     setTimeout(() => { travado = false; }, DUR);
   };
 
@@ -208,7 +207,10 @@
   // Navegando com Tab: ao focar algo de outra tela, ela vem para o meio
   document.addEventListener('focusin', (e) => {
     const i = telas.findIndex((t) => t.contains(e.target));
-    if (i >= 0 && i !== atual) go(i);
+    if (i >= 0 && i !== atual) {
+      go(i, { deFoco: true });
+      e.target.scrollIntoView?.({ block: 'nearest' });
+    }
   });
 
   // Se a tela atual tiver mais conteúdo que a altura (celular), rola dentro dela antes de trocar
@@ -220,6 +222,7 @@
 
   let soma = 0, timer;
   window.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) return; // zoom do navegador
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     const dir = Math.sign(e.deltaY);
     if (podeRolar(dir) && telas[atual].contains(e.target)) return;
@@ -247,6 +250,7 @@
   }, { passive: true });
 
   document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.altKey || e.metaKey) return; // atalhos do navegador
     if (travado || e.target.closest('input, textarea, select, [contenteditable]')) return;
     // Espaço em link ou botão é para clicar, não para trocar de tela
     if (e.key === ' ' && e.target.closest('a, button')) return;
@@ -264,6 +268,13 @@
   // Links internos (#secao) levam à tela certa
   document.querySelectorAll('a[href^="#"]').forEach((a) => a.addEventListener('click', (e) => {
     const alvo = document.getElementById(a.getAttribute('href').slice(1));
+    // "Pular para o conteúdo" aponta para o <main>: leva o foco para a tela que está na frente
+    if (alvo && !alvo.closest('.screen') && alvo.contains(telas[atual])) {
+      e.preventDefault();
+      telas[atual].setAttribute('tabindex', '-1');
+      telas[atual].focus({ preventScroll: true });
+      return;
+    }
     const i = alvo ? telas.indexOf(alvo.closest('.screen')) : -1;
     if (i < 0) return;
     e.preventDefault();

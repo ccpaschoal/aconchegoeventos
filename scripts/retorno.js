@@ -9,7 +9,7 @@
 
   const caixa = document.getElementById('resumo');
   if (r && caixa) {
-    const valor = Number(r.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const valor = window.Aconchego.reais(r.valor);
     const linha = (t) => { const p = document.createElement('span'); p.textContent = t; return p; };
     const b = document.createElement('b');
     b.textContent = r.quando;
