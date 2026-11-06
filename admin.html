@@ -8,11 +8,11 @@
   <meta name="theme-color" content="#070B10">
   <link rel="icon" href="assets/img/favicon.png" type="image/png">
   <link rel="preload" href="assets/fonts/montserrat-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="styles/style.css?v=202611060220">
-  <link rel="stylesheet" href="styles/agenda.css?v=202611060220">
-  <script src="scripts/comum.js?v=202611060220" defer></script>
-  <script src="scripts/agenda.js?v=202611060220" defer></script>
-  <script src="scripts/admin.js?v=202611060220" defer></script>
+  <link rel="stylesheet" href="styles/style.css?v=202611060301">
+  <link rel="stylesheet" href="styles/agenda.css?v=202611060301">
+  <script src="scripts/comum.js?v=202611060301" defer></script>
+  <script src="scripts/agenda.js?v=202611060301" defer></script>
+  <script src="scripts/admin.js?v=202611060301" defer></script>
 </head>
 <body class="pagina admin">
 <header class="topo">
@@ -27,14 +27,34 @@
 </header>
 
 <main id="conteudo">
-  <section class="screen marinho adm-login" id="login" aria-labelledby="login-titulo">
-    <form class="pilha pilha-16" id="form-login" method="post">
-      <p class="eyebrow c-claro">Área da dona</p>
-      <h1 class="display h2" id="login-titulo">Agenda de <span class="sub">reservas</span></h1>
-      <label class="campo"><span>Senha</span><input type="password" name="senha" autocomplete="current-password" required></label>
-      <p class="agenda-msg" role="alert" id="login-msg"></p>
-      <div><button class="btn btn-branco" type="submit">Entrar</button></div>
-    </form>
+  <section class="adm-entrar" id="login" aria-labelledby="login-titulo">
+    <div class="adm-entrar-lado">
+      <img class="adm-entrar-foto" src="assets/img/piscina-noite.webp" alt="" aria-hidden="true">
+      <a class="adm-entrar-logo" href="./" aria-label="Aconchego Festas e Eventos, ir para o site">
+        <img src="assets/img/logo.png" alt="" width="700" height="350">
+      </a>
+      <div class="adm-entrar-texto">
+        <p class="eyebrow">Gestão feita com cuidado</p>
+        <p class="adm-entrar-frase">Sua agenda organizada, cada festa no seu lugar.</p>
+        <p class="adm-entrar-apoio">Datas, reservas, preços e avisos reunidos num só painel.</p>
+      </div>
+    </div>
+    <div class="adm-entrar-form">
+      <form class="pilha" id="form-login" method="post">
+        <p class="eyebrow c-azul">Área privada</p>
+        <h1 id="login-titulo">Bem-vinda de volta</h1>
+        <p class="adm-entrar-sub">Entre para cuidar da agenda do Aconchego.</p>
+        <label class="campo adm-entrar-campo"><span>Senha</span>
+          <span class="adm-entrar-input">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <input type="password" name="senha" autocomplete="current-password" placeholder="Digite sua senha" required>
+          </span>
+        </label>
+        <p class="agenda-msg" role="alert" id="login-msg"></p>
+        <button class="adm-entrar-btn" type="submit">Entrar no painel</button>
+        <a class="adm-entrar-link" href="./">Ir para o site</a>
+      </form>
+    </div>
   </section>
 
   <div id="painel" class="pilha adm-painel" hidden>
