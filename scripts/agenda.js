@@ -30,6 +30,7 @@
     const titulo = raiz.querySelector('.cal-mes');
     const [ant, prox] = raiz.querySelectorAll('.cal-nav');
     const tbody = raiz.querySelector('tbody');
+    let ultimoHtml = '';
 
     const dentro = (m) => (!op.min || m >= op.min) && (!op.max || m <= op.max);
     const focar = () => tbody.querySelector(`[data-data="${foco}"]`)?.focus();
@@ -56,7 +57,8 @@
         html += `<td role="gridcell"${sel ? ' aria-selected="true"' : ''}><button type="button" class="cal-dia ${e.classe || ''}${data === op.hoje ? ' is-hoje' : ''}${sel ? ' is-escolhido' : ''}" data-data="${data}" tabindex="${data === foco ? 0 : -1}" aria-label="${d} de ${MESES[m - 1]} de ${a}${e.rotulo ? `, ${esc(e.rotulo)}` : ''}${data === op.hoje ? ', hoje' : ''}"${e.ativo ? '' : ' aria-disabled="true"'}>${d}</button></td>`;
       }
       html += `${vazio.repeat((7 - ((inicio + total) % 7)) % 7)}</tr>`;
-      tbody.innerHTML = html;
+      // Só recria os botões quando algo mudou (evita refazer 31 botões a cada tecla ou atualização)
+      if (html !== ultimoHtml) { tbody.innerHTML = html; ultimoHtml = html; }
       if (tinhaFoco) focar();
     }
 
@@ -150,7 +152,7 @@
         <legend class="agenda-passo"><span aria-hidden="true">3</span> Seus dados</legend>
         <label class="campo"><span>Nome</span><input name="nome" autocomplete="name" maxlength="80" required></label>
         <label class="campo"><span>WhatsApp</span><input name="whatsapp" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(62) 9 0000-0000" maxlength="16" required></label>
-        <label class="agenda-isca" aria-hidden="true">Não preencha <input name="site" tabindex="-1" autocomplete="off"></label>
+        <label class="agenda-isca" inert>Não preencha <input name="site" tabindex="-1" autocomplete="off"></label>
       </fieldset>
       <p class="agenda-resumo" aria-live="polite"></p>
       <p class="agenda-msg" role="alert" id="agenda-msg"></p>
@@ -176,8 +178,13 @@
   const aviso = (t) => { msg.innerHTML = t; };
   const FORA_DO_AR = 'A agenda online não respondeu agora.';
   const foraDoAr = () => aviso(`${FORA_DO_AR} <button type="button" class="link-btn" data-tentar>Tentar de novo</button>${WPP ? ` ou <a href="${WPP}" target="_blank" rel="noopener">reserve pelo WhatsApp</a>.` : ''}`);
-  msg.addEventListener('click', (e) => { if (e.target.closest('[data-tentar]')) carregar(cal.mes, true); });
+  msg.addEventListener('click', (e) => {
+    if (e.target.closest('[data-tentar]')) carregar(cal.mes, true);
+    if (e.target.closest('[data-tentar-dia]') && cal.escolhido) escolherDia(cal.escolhido);
+  });
   const diaDe = (data) => cache[data.slice(0, 7)]?.dias.find((d) => d.data === data);
+  const falhou = new Set(); // meses que não carregaram: o calendário mostra "sem informação" em vez de "carregando" para sempre
+  const suave = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
   const curta = (s) => { const [, m, d] = partes(s); return `${d}/${pad(m)}`; };
 
   const cal = Calendario(raiz.querySelector('.cal-alvo'), {
@@ -187,6 +194,7 @@
     rotulo: 'Use as setas para mudar de dia e Enter para escolher.',
     estado: (data) => {
       const d = diaDe(data);
+      if (!d && falhou.has(data.slice(0, 7))) return { classe: 'is-indisponivel', rotulo: 'sem informação, use Tentar de novo', ativo: false };
       if (!d) return { classe: 'is-carregando', rotulo: 'carregando', ativo: false };
       const e = ESTADOS[d.status] || ESTADOS.indisponivel;
       // intervalo começa nulo, então cal só é lido depois de criado
@@ -199,7 +207,8 @@
 
   async function buscar(mes) {
     const { r, j } = await buscarJSON(`${API}/disponibilidade?mes=${mes}`, { headers: { Accept: 'application/json' } });
-    if (!r.ok || !Array.isArray(j.dias)) throw new Error(r.status);
+    if (!r.ok || !Array.isArray(j.dias)) { falhou.add(mes); throw new Error(r.status); }
+    falhou.delete(mes);
     cache[j.mes] = j;
     return j;
   }
@@ -219,6 +228,7 @@
       info = j;
       if (msg.textContent.startsWith(FORA_DO_AR)) aviso('');
     } catch {
+      falhou.add(mes);
       foraDoAr();
     } finally {
       raiz.removeAttribute('aria-busy');
@@ -255,13 +265,28 @@
   const nomeOpcao = (o) => (o.n === 1 ? dataLonga(o.inicio)
     : `${SEMANA[diaSem(o.inicio)]} ${curta(o.inicio)} a ${SEMANA[diaSem(o.fim)].toLowerCase()} ${curta(o.fim)}`);
 
+  // Volta ao passo 1 (ex.: o dia escolhido acabou de ser reservado por outra pessoa)
+  function limparEscolha(texto) {
+    lista = [];
+    intervalo = null;
+    opcoes.innerHTML = '';
+    fsOpc.disabled = true;
+    resumo.textContent = '';
+    diaTxt.textContent = texto || 'Escolha um dia azul no calendário.';
+    btn.disabled = true;
+    cal.escolher(null);
+  }
+
+  let escolhaAtual = 0; // só a última escolha vale: respostas de cliques anteriores são ignoradas
   async function escolherDia(data) {
     if (!diaDe(data)) return;
+    const minha = ++escolhaAtual;
     // Combinações que viram o mês precisam do mês vizinho
     const max = info?.maxDias || 1;
     const meses = [somaDias(data, 1 - max).slice(0, 7), somaDias(data, max - 1).slice(0, 7)]
       .filter((m) => !cache[m] && (!info || (m >= info.de && m <= info.ate)));
-    await Promise.all([...new Set(meses)].map((m) => buscar(m).catch(() => null)));
+    const res = await Promise.all([...new Set(meses)].map((m) => buscar(m).then(() => true, () => false)));
+    if (minha !== escolhaAtual || cal.escolhido !== data) return;
     lista = montarOpcoes(data);
     diaTxt.textContent = dataLonga(data);
     opcoes.innerHTML = lista.map((o, i) => `<label class="periodo">
@@ -272,9 +297,11 @@
       </label>`).join('');
     fsOpc.disabled = false;
     fsDados.disabled = false;
-    aviso('');
+    aviso(res.includes(false)
+      ? 'Os dias do mês vizinho não carregaram, então reservas que viram o mês podem não aparecer. <button type="button" class="link-btn" data-tentar-dia>Tentar de novo</button>'
+      : '');
     atualizaResumo();
-    if (matchMedia('(max-width: 820px)').matches) fsOpc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (matchMedia('(max-width: 820px)').matches) fsOpc.scrollIntoView({ block: 'nearest', behavior: suave() });
   }
 
   function atualizaResumo() {
@@ -341,11 +368,17 @@
       }, 30000).catch(() => ({ r: null, j: {} }));
       const destino = j.whatsapp ? destinoSeguro(j.whatsapp, 'whatsapp') : destinoSeguro(j.init_point, 'mercadopago');
       if (!r || !r.ok || !destino) {
-        if (r?.status === 409) {
+        // Data ocupada ou sem resposta: recarrega os meses para a tela mostrar o estado real
+        if (r?.status === 409 || !r) {
           await Promise.all([...new Set(escolha.datas.map((d) => d.slice(0, 7)))].map((m) => carregar(m, true)));
           if (diaDe(cal.escolhido)?.status === 'disponivel') await escolherDia(cal.escolhido);
+          else if (r) limparEscolha('Essa data não está mais livre. Escolha outro dia azul no calendário.');
+          else {
+            // Sem resposta, mas o dia agora aparece ocupado: provavelmente o pedido foi registrado
+            throw new Error(`O servidor não respondeu a tempo e a data agora aparece guardada. Talvez o seu pedido tenha sido registrado: ${WPP ? `<a href="${WPP}" target="_blank" rel="noopener">confirme com a gente no WhatsApp</a>` : 'confirme com a gente no WhatsApp'} antes de tentar outra data.`);
+          }
         }
-        throw new Error(j.erro || 'Não foi possível continuar agora. Tente de novo em instantes.');
+        throw new Error(esc(j.erro || (r ? 'Não foi possível continuar agora. Tente de novo em instantes.' : 'Sem conexão com o servidor. Confira a internet e tente de novo.')));
       }
       try {
         localStorage.setItem('aconchego-reserva', JSON.stringify({
@@ -365,10 +398,18 @@
       }
       location.href = j.init_point;
     } catch (err) {
-      aviso(esc(err.message));
+      aviso(err.message); // mensagens já escapadas acima (algumas têm link)
       btn.textContent = TXT_BTN;
       btn.disabled = !intervalo;
     }
+  });
+
+  // Voltou do Mercado Pago pelo botão "voltar" (página restaurada do cache): destrava o botão
+  addEventListener('pageshow', (e) => {
+    if (!e.persisted) return;
+    btn.onclick = null;
+    btn.textContent = TXT_BTN;
+    btn.disabled = !intervalo;
   });
 
   const j0Texto = () => (info?.pagamento === 'whatsapp' ? 'Registrando pedido…' : 'Abrindo pagamento…');

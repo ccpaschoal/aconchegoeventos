@@ -11,6 +11,16 @@
   const renders = [];
   const { pad: pad2, seta: svgSeta, SETA } = window.Aconchego;
 
+  // Links que abrem outra aba avisam isso ao leitor de tela
+  document.querySelectorAll('a[target="_blank"]').forEach((a) => {
+    const rotulo = a.getAttribute('aria-label');
+    if (rotulo) { if (!rotulo.includes('nova aba')) a.setAttribute('aria-label', `${rotulo} (abre em nova aba)`); return; }
+    const aviso = document.createElement('span');
+    aviso.className = 'sr-only';
+    aviso.textContent = ' (abre em nova aba)';
+    a.append(aviso);
+  });
+
   /* ── Títulos letra por letra ──
      O texto inteiro fica num span invisível para leitores de tela; as letras animadas ficam escondidas deles. */
   document.querySelectorAll('.split').forEach((el) => {
@@ -87,6 +97,7 @@
     cf.append(rod);
 
     items.forEach((item, i) => {
+      if (item.matches('a')) return; // link continua sendo link para o leitor de tela (com o nome dele)
       item.setAttribute('role', 'group');
       item.setAttribute('aria-roledescription', 'slide');
       item.setAttribute('aria-label', `${i + 1} de ${items.length}`);
@@ -95,9 +106,11 @@
     let atual = Math.min(items.length - 1, Number(cf.dataset.inicio ?? Math.floor((items.length - 1) / 2)));
     let arrastou = false;
 
+    // Medidas lidas só no início, no resize e no load (ler medida a cada arrasto força o navegador a recalcular o layout)
+    let size = 0, alturaRail = 0;
+    const medir = () => { size = items[0].offsetWidth; alturaRail = Math.max(...items.map((i) => i.offsetHeight)) + 16; };
     const render = () => {
-      const size = items[0].offsetWidth;
-      rail.style.height = `${Math.max(...items.map((i) => i.offsetHeight)) + 16}px`;
+      rail.style.height = `${alturaRail}px`;
       items.forEach((item, i) => {
         const d = i - atual, ad = Math.min(Math.abs(d), 3);
         const x = Math.sign(d) * CARROSSEL.dist[ad] * size;
@@ -106,16 +119,18 @@
         item.style.filter = ad ? `brightness(${CARROSSEL.brilho[ad]})` : 'none';
         item.style.zIndex = 10 - ad;
         item.style.visibility = Math.abs(d) > 3 ? 'hidden' : 'visible';
+        item.setAttribute('aria-hidden', String(d !== 0)); // leitor de tela lê só o item da frente
       });
       conta.textContent = `${pad2(atual + 1)} / ${pad2(items.length)}`;
       barra.style.setProperty('--cf-p', `${((atual + 1) / items.length) * 100}%`);
-      prev.disabled = atual === 0;
-      next.disabled = atual === items.length - 1;
+      // aria-disabled em vez de disabled: o botão desativado continua com o foco (senão o foco cai no body)
+      prev.setAttribute('aria-disabled', String(atual === 0));
+      next.setAttribute('aria-disabled', String(atual === items.length - 1));
     };
     const go = (i) => { atual = Math.max(0, Math.min(items.length - 1, i)); render(); };
 
-    prev.addEventListener('click', () => go(atual - 1));
-    next.addEventListener('click', () => go(atual + 1));
+    prev.addEventListener('click', () => { if (atual > 0) go(atual - 1); });
+    next.addEventListener('click', () => { if (atual < items.length - 1) go(atual + 1); });
     items.forEach((item, i) => item.addEventListener('click', (e) => {
       if (arrastou || i !== atual) e.preventDefault();
       if (!arrastou && i !== atual) go(i);
@@ -135,7 +150,7 @@
       if (x0 === null) return;
       const dx = e.clientX - x0;
       if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(e.clientY - y0)) { arrastou = true; rail.classList.add('is-arrastando'); }
-      if (arrastou && Math.abs(dx) > items[0].offsetWidth * .4) { go(atual + (dx < 0 ? 1 : -1)); x0 = e.clientX; }
+      if (arrastou && Math.abs(dx) > size * .4) { go(atual + (dx < 0 ? 1 : -1)); x0 = e.clientX; }
     });
     const solta = () => {
       x0 = null;
@@ -144,7 +159,8 @@
     };
     ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => rail.addEventListener(ev, solta));
 
-    renders.push(render);
+    renders.push(() => { medir(); render(); });
+    medir();
     render();
   });
 
@@ -162,11 +178,12 @@
   const render = () => {
     const vh = window.innerHeight;
     const folga = window.innerWidth <= 600 ? Math.round(TELA.folga * .6) : TELA.folga;
-    const hAtual = telas[atual].offsetHeight;
+    const alturas = telas.map((t) => t.offsetHeight); // todas as leituras antes das escritas (sem recalcular layout a cada tela)
+    const hAtual = alturas[atual];
     telas.forEach((t, i) => {
       const d = i - atual, ad = Math.min(Math.abs(d), 2);
       let y = 0;
-      if (ad === 1) y = Math.sign(d) * (hAtual / 2 + folga + (t.offsetHeight * TELA.escala[1]) / 2);
+      if (ad === 1) y = Math.sign(d) * (hAtual / 2 + folga + (alturas[i] * TELA.escala[1]) / 2);
       else if (ad === 2) y = Math.sign(d) * vh;
       t.style.transform = `translate(-50%, -50%) translateY(${y.toFixed(1)}px) scale(${TELA.escala[ad]})`;
       t.style.opacity = TELA.opac[ad];
@@ -186,14 +203,33 @@
     if (contador) contador.textContent = `${pad2(atual + 1)} / ${pad2(telas.length)}`;
   };
 
+  // Leitor de tela: anuncia a tela que veio para a frente (o contador visual não é anunciado)
+  const voz = document.createElement('p');
+  voz.className = 'sr-only';
+  voz.setAttribute('aria-live', 'polite');
+  document.body.append(voz);
+  const nomeTela = (t) => (t.querySelector('h1, h2')?.textContent || '').replace(/\s+/g, ' ').trim();
+  let timerTrava = 0, timerAnima = 0, primeira = true;
+
   const go = (i, { deFoco = false } = {}) => {
     const alvo = Math.max(0, Math.min(telas.length - 1, i));
     if (alvo === atual) return;
     atual = alvo;
-    travado = true;
+    travado = !primeira; // ao abrir a página, as setas já funcionam
+    root.classList.add('animando'); // will-change só durante a troca (camadas extras pesam no celular)
     render();
+    if (!primeira) voz.textContent = `Tela ${atual + 1} de ${telas.length}${nomeTela(telas[atual]) ? `: ${nomeTela(telas[atual])}` : ''}`;
+    // O endereço acompanha a tela (dá para copiar o link de uma seção)
+    const id = telas[atual].id;
+    if (!primeira) try { history.replaceState(null, '', id ? `#${id}` : location.pathname + location.search); } catch { /* ok */ }
+    primeira = false;
+    esperaPausa = true;
     if (!deFoco) telas[atual].scrollTop = 0;
-    setTimeout(() => { travado = false; }, DUR);
+    // Cancela o timer da troca anterior: senão ele destrava no meio desta animação
+    clearTimeout(timerTrava);
+    clearTimeout(timerAnima);
+    timerTrava = setTimeout(() => { travado = false; }, DUR);
+    timerAnima = setTimeout(() => root.classList.remove('animando'), DUR + 50);
   };
 
   // A tela vizinha que espia também é clicável
@@ -220,14 +256,19 @@
     return dir > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 2 : el.scrollTop > 2;
   };
 
-  let soma = 0, timer;
+  let soma = 0, timer, esperaPausa = false, ultimaRoda = 0;
   window.addEventListener('wheel', (e) => {
     if (e.ctrlKey || e.metaKey) return; // zoom do navegador
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     const dir = Math.sign(e.deltaY);
     if (podeRolar(dir) && telas[atual].contains(e.target)) return;
     e.preventDefault();
+    // Depois de trocar de tela, o trackpad continua mandando eventos por inércia: só aceita de novo após uma pausa
+    const agora = performance.now();
+    const pausa = agora - ultimaRoda;
+    ultimaRoda = agora;
     if (travado) return;
+    if (esperaPausa) { if (pausa < 180) return; esperaPausa = false; }
     soma += e.deltaY;
     clearTimeout(timer);
     timer = setTimeout(() => { soma = 0; }, 200);
@@ -286,5 +327,8 @@
   window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(atualizaTudo); });
   window.addEventListener('load', atualizaTudo);
   navAltura();
-  go(0);
+  // Link de fora com #secao abre direto na tela certa
+  const doHash = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+  const inicial = doHash ? telas.indexOf(doHash.closest('.screen')) : -1;
+  go(inicial >= 0 ? inicial : 0);
 })();

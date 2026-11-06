@@ -101,12 +101,13 @@ p { margin: 0; max-width: 62ch; }
 .btn-linha { border-color: currentColor; background: transparent; }
 .btn svg { width: 1.15em; height: 1.15em; flex: none; }
 .saiba { font-family: var(--f-display); font-weight: 800; font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; text-decoration: none; }
-.saiba::after { content: " >>>"; }
+.saiba::after { content: " >>>"; content: " >>>" / ""; } /* setas só visuais: o leitor de tela não lê "maior que" */
 
 /* ── Cabeçalho ── */
 .topo {
   position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; z-index: 50; height: var(--nav);
-  background: rgba(7, 11, 16, .82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  /* fundo quase opaco no lugar do desfoque: blur por cima de telas em movimento custa caro no celular */
+  background: rgba(7, 11, 16, .96);
   border-bottom: 1px solid rgba(255, 255, 255, .08);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
@@ -119,7 +120,11 @@ p { margin: 0; max-width: 62ch; }
 .nav a.link:hover, .nav a.link.is-ativo { color: var(--branco); }
 .nav .btn { padding: 0.7em 1.1em; font-size: 0.76rem; }
 .contador { font-family: var(--f-display); font-weight: 800; font-size: 0.78rem; color: rgba(255, 255, 255, .55); font-variant-numeric: tabular-nums; }
-@media (max-width: 900px) { .nav a.link { display: none; } }
+/* No celular os links de seção somem da vista, mas continuam para leitor de tela e aparecem ao receber foco pelo teclado */
+@media (max-width: 900px) {
+  .nav a.link:not(:focus-visible) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .nav a.link:focus-visible { position: absolute; top: calc(100% + 6px); left: 16px; padding: .7em 1em; background: var(--marinho); color: var(--branco); z-index: 60; }
+}
 @media (max-width: 440px) { .nav .btn span { display: none; } .nav .btn { padding: 0.65em; } .marca img { height: 34px; } }
 
 /* ── Telas (sem JS: empilhadas com rolagem normal) ── */
@@ -143,8 +148,8 @@ html.deck-on, .deck-on body { height: 100%; overflow: hidden; overscroll-behavio
   overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   transform: translate(-50%, -50%);
   transform-origin: 50% 50%;
-  transition: transform .85s var(--ease), opacity .85s var(--ease), filter .85s var(--ease);
-  will-change: transform;
+  /* filter fora da transição e will-change só durante a troca: animar filtro em telas grandes pesa no celular */
+  transition: transform .85s var(--ease), opacity .85s var(--ease);
   box-shadow: 0 24px 60px rgba(0, 0, 0, .5);
 }
 .deck-on .screen.is-near { overflow: hidden; cursor: pointer; }
@@ -214,7 +219,7 @@ html.deck-on, .deck-on body { height: 100%; overflow: hidden; overscroll-behavio
 .js .cf-rail { position: relative; height: calc(var(--cf) * 1.25 + 16px); touch-action: pan-y; cursor: grab; user-select: none; }
 .js .cf-rail.is-arrastando { cursor: grabbing; }
 .js .cf-item { position: absolute; top: 8px; left: 50%; width: var(--cf); margin: 0 0 0 calc(var(--cf) / -2);
-  transform-origin: 50% 50%; transition: transform .6s var(--ease), opacity .6s var(--ease), filter .6s var(--ease); will-change: transform;
+  transform-origin: 50% 50%; transition: transform .6s var(--ease), opacity .6s var(--ease);
   box-shadow: 0 12px 28px rgba(0, 20, 32, .28); background: var(--marinho); }
 .cf-item img { width: 100%; height: auto; aspect-ratio: 4/5; object-fit: cover; pointer-events: none; -webkit-user-drag: none; }
 .cf-item figcaption { position: absolute; left: 0; bottom: 0; padding: .55em .8em; background: var(--azul); color: var(--branco);
@@ -224,7 +229,8 @@ html.deck-on, .deck-on body { height: 100%; overflow: hidden; overscroll-behavio
 .cf-barra { position: relative; width: min(150px, 28vw); height: 3px; background: rgba(0,0,0,.15); }
 .cf-barra span { position: absolute; inset: 0 auto 0 0; width: var(--cf-p, 0%); background: currentColor; transition: width .6s var(--ease); }
 .cf-btn { width: 38px; height: 38px; display: grid; place-items: center; border: 2.5px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
-.cf-btn:disabled { opacity: .3; cursor: default; }
+.cf-btn:disabled, .cf-btn[aria-disabled="true"] { opacity: .3; cursor: default; }
+.animando .screen, .animando .cf-item { will-change: transform; }
 .cf-btn svg { width: 18px; height: 18px; }
 
 /* ── 4. Galeria ── */
