@@ -116,7 +116,8 @@ export async function enviarNtfy(env, r) {
       body: JSON.stringify({
         topic: env.NTFY_TOPICO,
         title: r.status === 'pedido' ? `Pedido de reserva: ${quando(r)}` : r.status === 'conflito' ? `Conflito de reserva ${dataBR(r.inicio)}` : `Reserva paga: ${quando(r)}`,
-        message: textoAlerta(r),
+        // Sem nome e WhatsApp do cliente: o ntfy é um serviço público; os detalhes ficam no painel
+        message: [titulo(r), '', `Data: ${quando(r)}`, `Valor: ${reais(r.valor_pago ?? r.valor)}`, `Código: ${r.id}`, '', 'Detalhes no painel.'].join('\n'),
         tags: [r.status === 'conflito' ? 'warning' : r.status === 'pedido' ? 'calendar' : 'moneybag'],
         priority: r.status === 'conflito' ? 5 : 4,
         click: `${(env.SITE_URL || 'https://aconchegoeventos.pages.dev').replace(/\/$/, '')}/admin.html`,

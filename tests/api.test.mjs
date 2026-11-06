@@ -13,7 +13,10 @@ class Comando {
   bind(...params) { return new Comando(this.sqlite, this.sql, params); }
   async first() { return this.sqlite.prepare(this.sql).get(...this.params) ?? null; }
   async all() { return { results: this.sqlite.prepare(this.sql).all(...this.params) }; }
-  async run() { return { meta: { changes: Number(this.sqlite.prepare(this.sql).run(...this.params).changes) } }; }
+  async run() {
+    const r = this.sqlite.prepare(this.sql).run(...this.params);
+    return { meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } };
+  }
 }
 function d1() {
   const sqlite = new DatabaseSync(':memory:');
@@ -235,19 +238,100 @@ test('estorno libera a data', async () => {
 });
 
 /* ── Painel da dona ── */
-const admin = (metodo, corpo, senha = SENHA, ip = '7.7.7.7') => chamar(metodo, '/api/admin', {
-  corpo, ip, cabecalhos: { Authorization: `Bearer ${encodeURIComponent(senha)}` },
-});
+const entrar = (senha = SENHA, ip = '7.7.7.7') => chamar('POST', '/api/admin', { corpo: { acao: 'entrar', senha }, ip });
+const admin = async (metodo, corpo, ip = '7.7.7.7') => {
+  const { j } = await entrar(SENHA, ip);
+  return chamar(metodo, '/api/admin', { corpo, ip, cabecalhos: { Authorization: `Bearer ${j.token}` } });
+};
 
 test('painel: senha errada é recusada e muitas tentativas bloqueiam', async () => {
-  assert.equal((await admin('GET', undefined, 'errada')).status, 401);
-  assert.equal((await admin('GET')).status, 200);
-  const agora = Date.now();
+  assert.equal((await entrar('errada')).status, 401);
+  const ok = await entrar();
+  assert.equal(ok.status, 200);
+  assert.match(ok.j.token, /^\d+\.[a-f0-9]{64}$/);
+  assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM tentativas').get().n, 1, 'senha certa não conta como erro');
   const { j } = await admin('GET');
   assert.ok(Array.isArray(j.reservas));
+  const agora = Date.now();
   const ipHash = env.DB.sqlite.prepare('SELECT ip_hash FROM tentativas LIMIT 1').get().ip_hash;
   for (let i = 0; i < 10; i++) env.DB.sqlite.prepare('INSERT INTO tentativas (ip_hash, em) VALUES (?, ?)').run(ipHash, agora);
-  assert.equal((await admin('GET')).status, 429, 'até a senha certa espera depois de 10 erros');
+  assert.equal((await entrar()).status, 429, 'até a senha certa espera depois de 10 erros');
+});
+
+test('painel: token falso, vencido ou de outra senha é recusado; senha não vale como token', async () => {
+  const chamarCom = (t) => chamar('GET', '/api/admin', { cabecalhos: { Authorization: `Bearer ${t}` } });
+  assert.equal((await chamarCom(SENHA)).status, 401);
+  assert.equal((await chamarCom(`${Date.now() + 3600e3}.${'0'.repeat(64)}`)).status, 401);
+  const { j } = await entrar();
+  assert.equal((await chamarCom(j.token)).status, 200);
+  env.ADMIN_PASSWORD = 'senha-nova';
+  assert.equal((await chamarCom(j.token)).status, 401, 'trocar a senha derruba a sessão');
+});
+
+test('painel: tentativas em paralelo também contam no limite', async () => {
+  const r = await Promise.all(Array.from({ length: 12 }, () => entrar('errada', '8.8.8.8')));
+  assert.ok(r.some((x) => x.status === 429));
+});
+
+test('painel: avisa quando falta o segredo do webhook (e o site não cobra sem ele)', async () => {
+  delete env.MP_WEBHOOK_SECRET;
+  const { j } = await admin('GET');
+  assert.ok(j.pendencias.some((p) => p.includes('MP_WEBHOOK_SECRET')));
+  assert.equal(j.pagamento, 'whatsapp');
+});
+
+test('painel: reserva paga só é cancelada depois de devolver o dinheiro', async () => {
+  const dia = diaComum();
+  const { j } = await reservar(dia);
+  await avisoDoMP(901, 'approved', 99999, j.id);
+  assert.equal(reserva(j.id).status, 'paga');
+  assert.equal((await admin('POST', { acao: 'cancelar', id: j.id })).status, 409);
+  assert.equal((await admin('POST', { acao: 'cancelar', id: j.id, jaDevolvido: true })).status, 200);
+  assert.equal(await estadoDoDia(dia), 'disponivel');
+});
+
+test('corpo null, lista ou grande demais vira 400/413, nunca 500', async () => {
+  assert.equal((await chamar('POST', '/api/criar-reserva', { corpo: 'null' })).status, 400);
+  assert.equal((await chamar('POST', '/api/criar-reserva', { corpo: '[]' })).status, 400);
+  assert.equal((await chamar('POST', '/api/admin', { corpo: 'null' })).status, 400);
+  assert.notEqual((await chamar('POST', '/api/webhook-mp', { corpo: 'null' })).status, 500);
+  const grande = await chamar('POST', '/api/criar-reserva', { corpo: { nome: 'x'.repeat(20000) } });
+  assert.equal(grande.status, 413);
+});
+
+test('reserva nova numa data ocupada não apaga a reserva antiga da mesma pessoa', async () => {
+  const dia = diaComum(), outro = diaComum(5);
+  const minha = (await reservar(dia)).j;
+  await reservar(outro, { ip: '9.9.9.9', corpo: { whatsapp: '62988887777' } });
+  // tenta trocar para um período que inclui o dia dela e o dia de outra pessoa
+  const r = await chamar('POST', '/api/criar-reserva', { corpo: { inicio: dia, dias: 1, nome: 'Maria Teste', whatsapp: '(62) 9 9999-0000' } });
+  assert.equal(r.status, 200, 'refazer o mesmo dia funciona');
+  assert.equal(reserva(minha.id).status, 'substituida');
+  const nova = r.j.id;
+  const falha = await chamar('POST', '/api/criar-reserva', { corpo: { inicio: outro, dias: 1, nome: 'Maria Teste', whatsapp: '(62) 9 9999-0000' } });
+  assert.equal(falha.status, 409);
+  assert.equal(reserva(nova).status, 'pendente', 'a reserva que ela já tinha continua valendo');
+});
+
+test('limite de pedidos abertos também vale por WhatsApp, mesmo trocando de IP', async () => {
+  for (let i = 0; i < 3; i++) assert.equal((await reservar(diaComum(3 + i), { ip: `5.5.5.${i}` })).status, 200);
+  assert.equal((await reservar(diaComum(8), { ip: '5.5.5.9' })).status, 429);
+});
+
+test('status da reserva: só o estado, sem dados do cliente', async () => {
+  const { j } = await reservar(diaComum());
+  const s = await chamar('GET', `/api/status?id=${j.id}`);
+  assert.deepEqual(s.j, { status: 'pendente' });
+  assert.equal((await chamar('GET', '/api/status?id=xyz')).status, 400);
+});
+
+test('CORS: rotas públicas aceitam o GitHub Pages, o painel não', async () => {
+  const origem = { Origin: 'https://ccpaschoal.github.io' };
+  const req = (c) => new Request(`https://teste.local${c}`, { headers: { ...origem, 'CF-Connecting-IP': '1.1.1.1' } });
+  const pub = await worker.fetch(req('/api/disponibilidade'), env, { waitUntil() {} });
+  assert.equal(pub.headers.get('Access-Control-Allow-Origin'), origem.Origin);
+  const adm = await worker.fetch(req('/api/admin'), env, { waitUntil() {} });
+  assert.equal(adm.headers.get('Access-Control-Allow-Origin'), null);
 });
 
 test('painel: preço vazio ou zero não é aceito', async () => {

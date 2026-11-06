@@ -1,9 +1,11 @@
 /* Aconchego · painel da dona (admin.html).
-   A senha só fica na sessão deste navegador e é conferida pela API (/api/admin). */
+   A senha vai uma vez para a API, que devolve um token de sessão (12 h); só o token fica na sessão do navegador. */
 (() => {
+  // O painel só funciona no domínio próprio (a API não aceita o painel vindo de outro site)
+  if (location.hostname.endsWith('github.io')) { location.replace('https://aconchegoeventos.pages.dev/admin.html'); return; }
   const { dataLonga, dataCurta, diaSem: diaSemana, reais, esc, fone, hojeLocal, SEMANA, buscarJSON } = window.Aconchego;
   const $ = (s, el = document) => el.querySelector(s);
-  const CHAVE = 'aconchego-admin';
+  const CHAVE = 'aconchego-sessao';
   const API = window.Aconchego.api();
   const SITUACAO = {
     paga: 'Paga', pedido: 'Pedido pelo WhatsApp', confirmada: 'Confirmada', pendente: 'Aguardando pagamento', bloqueio: 'Bloqueio', conflito: 'Conflito: devolver',
@@ -19,8 +21,8 @@
   const tri = (v) => (v === '1' ? true : v === '0' ? false : null);
   const sel = (v, alvo) => (v === alvo ? ' selected' : '');
 
-  let senha = '';
-  try { senha = sessionStorage.getItem(CHAVE) || ''; } catch { /* sem sessão: pede a senha */ }
+  let token = '';
+  try { token = sessionStorage.getItem(CHAVE) || ''; sessionStorage.removeItem('aconchego-admin'); } catch { /* sem sessão: pede a senha */ }
   let dados = null;
   let diaAberto = null;
   let cal = null;
@@ -28,19 +30,19 @@
   async function api(metodo, corpo, mes) {
     const { r, j } = await buscarJSON(`${API}/admin${mes ? `?mes=${mes}` : ''}`, {
       method: metodo,
-      headers: { Authorization: `Bearer ${encodeURIComponent(senha)}`, ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Authorization: `Bearer ${token}`, ...(corpo ? { 'Content-Type': 'application/json' } : {}) },
       body: corpo ? JSON.stringify(corpo) : undefined,
     }).catch(() => ({ r: null, j: {} }));
     if (!r) throw new Error('Sem conexão com o servidor. Confira a internet e tente de novo.');
-    // Só a senha errada tira a dona do painel; queda de internet ou erro do servidor não
-    if (r.status === 401) { sair(); throw new Error(j.erro || 'Senha incorreta.'); }
+    // Só a sessão inválida tira a dona do painel; queda de internet ou erro do servidor não
+    if (r.status === 401) { sair(); throw new Error(j.erro || 'Sessão expirada. Entre de novo.'); }
     if (!r.ok) throw new Error(j.erro || 'Erro ao falar com o servidor.');
     return j;
   }
 
   /* ── Entrar e sair ── */
   function sair() {
-    senha = '';
+    token = '';
     try { sessionStorage.removeItem(CHAVE); } catch { /* ok */ }
     $('#painel').hidden = true;
     $('#sair').hidden = true;
@@ -50,14 +52,27 @@
 
   $('#form-login').addEventListener('submit', async (e) => {
     e.preventDefault();
-    senha = e.target.elements.senha.value;
+    const botao = e.target.querySelector('button[type="submit"]');
+    if (botao?.disabled) return;
     $('#login-msg').textContent = '';
-    try { await entrar(); } catch (err) { $('#login').hidden = false; $('#login-msg').textContent = err.message; }
+    if (botao) botao.disabled = true;
+    try {
+      const { r, j } = await buscarJSON(`${API}/admin`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'entrar', senha: e.target.elements.senha.value }),
+      }).catch(() => ({ r: null, j: {} }));
+      if (!r) throw new Error('Sem conexão com o servidor. Confira a internet e tente de novo.');
+      if (!r.ok || !j.token) throw new Error(j.erro || 'Não foi possível entrar.');
+      token = j.token;
+      try { sessionStorage.setItem(CHAVE, token); } catch { /* ok */ }
+      e.target.elements.senha.value = '';
+      await entrar();
+    } catch (err) { $('#login').hidden = false; $('#login-msg').textContent = err.message; }
+    finally { if (botao) botao.disabled = false; }
   });
 
   async function entrar() {
     dados = await api('GET', null, cal?.mes || hojeLocal().slice(0, 7));
-    try { sessionStorage.setItem(CHAVE, senha); } catch { /* ok */ }
     $('#login').hidden = true;
     $('#painel').hidden = false;
     $('#sair').hidden = false;
@@ -66,6 +81,22 @@
     configForm();
     tabela();
     avisos();
+    pendencias();
+  }
+
+  // Problemas de configuração (ex.: falta segredo do Mercado Pago) ficam fixos no topo do painel
+  function pendencias() {
+    const lista = dados?.pendencias || [];
+    let caixa = $('#adm-pendencias');
+    if (!lista.length) { caixa?.remove(); return; }
+    if (!caixa) {
+      caixa = document.createElement('p');
+      caixa.id = 'adm-pendencias';
+      caixa.className = 'nota';
+      caixa.setAttribute('role', 'status');
+      $('#painel').prepend(caixa);
+    }
+    caixa.textContent = lista.join(' ');
   }
 
   // Ao redesenhar o painel, o botão focado é recriado: guarda qual era para devolver o foco a ele
@@ -84,6 +115,7 @@
     cal.atualizar();
     tabela();
     avisos();
+    pendencias();
     const d = diaAberto && dados.dias.find((x) => x.data === diaAberto);
     if (d && !manterEditor) editor(d);
     devolverFoco(foco);
@@ -184,10 +216,18 @@
     botoes.forEach((b) => { b.disabled = true; });
     try {
       await api('POST', corpo);
+    } catch (err) {
+      avisoDia(err.message);
+      enviando = false;
+      botoes.forEach((b) => { if (b.isConnected) b.disabled = false; });
+      return;
+    }
+    // A ação já foi feita: se só a atualização da tela falhar, avisa sem dizer que deu erro na ação
+    try {
       await recarregar();
       avisoDia(ok, true);
     } catch (err) {
-      avisoDia(err.message);
+      avisoDia(`${ok} A tela não atualizou (${err.message}); recarregue a página antes de mexer de novo.`, true);
     } finally {
       enviando = false;
       botoes.forEach((b) => { if (b.isConnected) b.disabled = false; });
@@ -222,41 +262,52 @@
     caixa.innerHTML = `<table class="adm-tabela">
       <thead><tr><th scope="col">Data</th><th scope="col">Cliente</th><th scope="col">WhatsApp</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
       <tbody>${lista.map((r) => {
-        const pode = ['paga', 'pedido', 'confirmada', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
+        const pode = ['pedido', 'confirmada', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
         return `<tr>
           <td><b>${esc(quando(r))}</b><br><small>${SEMANA[diaSemana(r.inicio)]}${r.inicio !== r.fim ? ` a ${SEMANA[diaSemana(r.fim)].toLowerCase()}` : ''}</small></td>
           <td>${esc(r.nome)}${r.obs ? `<br><small>${esc(r.obs)}</small>` : ''}</td>
           <td>${r.whatsapp ? `<a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${esc(fone(r.whatsapp))}</a>` : '-'}</td>
           <td>${r.valor ? reais(r.valor_pago ?? r.valor) : '-'}${r.detalhe ? `<br><small>${esc(r.detalhe)}</small>` : ''}</td>
           <td><span class="selo is-${esc(r.situacao)}">${SITUACAO[r.situacao] || esc(r.situacao)}</span></td>
-          <td class="acoes">${r.situacao === 'pedido' ? `<button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar</button>` : ''}${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}</td>
+          <td class="acoes">${r.situacao === 'pedido' ? `<button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar</button>` : ''}${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}${r.situacao === 'paga' ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}" data-devolvido="1" title="Use só depois de devolver o dinheiro no Mercado Pago">Já devolvi: liberar</button>` : ''}</td>
         </tr>`;
       }).join('')}</tbody></table>`;
   }
   $('#adm-filtro').addEventListener('change', tabela);
+
+  // Ação da lista: trava o botão, mostra o erro na mensagem do topo e devolve o texto original do botão
+  async function acaoLista(botao, corpo) {
+    botao.disabled = true;
+    $('#adm-msg').textContent = '';
+    try { await api('POST', corpo); } catch (err) {
+      $('#adm-msg').textContent = err.message;
+      if (botao.isConnected) { botao.disabled = false; botao.textContent = botao.dataset.texto || botao.textContent; delete botao.dataset.certeza; }
+      return;
+    }
+    try { await recarregar(); } catch (err) { $('#adm-msg').textContent = `Feito, mas a lista não atualizou (${err.message}). Recarregue a página.`; }
+    if (botao.isConnected) botao.disabled = false;
+  }
 
   // Cancelar pede um segundo clique para confirmar
   $('#adm-reservas').addEventListener('click', async (e) => {
     const c = e.target.closest('[data-confirmar]');
     if (c) {
       if (c.disabled) return;
-      c.disabled = true;
-      try { await api('POST', { acao: 'confirmar', id: c.dataset.confirmar }); await recarregar(); }
-      catch (err) { c.disabled = false; c.textContent = err.message; }
+      c.dataset.texto = c.textContent;
+      await acaoLista(c, { acao: 'confirmar', id: c.dataset.confirmar });
       return;
     }
     const b = e.target.closest('[data-cancelar]');
     if (!b) return;
+    if (b.disabled) return;
     if (!b.dataset.certeza) {
       b.dataset.certeza = '1';
-      const antes = b.textContent;
+      b.dataset.texto = b.textContent;
       b.textContent = 'Confirmar?';
-      setTimeout(() => { if (b.isConnected) { delete b.dataset.certeza; b.textContent = antes; } }, 4000);
+      setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.certeza; b.textContent = b.dataset.texto; } }, 4000);
       return;
     }
-    b.disabled = true;
-    try { await api('POST', { acao: 'cancelar', id: b.dataset.cancelar }); await recarregar(); }
-    catch (err) { b.disabled = false; b.textContent = err.message; }
+    await acaoLista(b, { acao: 'cancelar', id: b.dataset.cancelar, ...(b.dataset.devolvido ? { jaDevolvido: true } : {}) });
   });
 
   /* ── Avisos (pedidos novos, pagamentos, conflitos) ── */
@@ -272,11 +323,19 @@
       return `<li class="${a.lido ? '' : 'is-novo'}"><small>${esc(quandoFoi)}${a.lido ? '' : ' · novo'}</small><b>${esc(titulo)}</b><span>${esc(resto.join(' '))}</span></li>`;
     }).join('') : '<li><span>Nenhum aviso ainda. Pedidos e pagamentos novos aparecem aqui.</span></li>';
   }
-  $('#avisos-lidos').addEventListener('click', async () => {
-    try { await api('POST', { acao: 'lidos' }); await recarregar(); } catch { /* tenta de novo depois */ }
+  $('#avisos-lidos').addEventListener('click', async (e) => {
+    const botao = e.currentTarget;
+    if (botao.disabled) return;
+    botao.dataset.texto = botao.textContent;
+    await acaoLista(botao, { acao: 'lidos' });
   });
-  // Confere novidades a cada 2 minutos enquanto o painel está aberto
-  setInterval(() => { if (senha && !document.hidden && cal) recarregar(true).catch(() => {}); }, 120000);
+  // Confere novidades a cada 2 minutos enquanto o painel está aberto (sem empilhar pedidos se a rede estiver lenta)
+  let conferindo = false;
+  setInterval(() => {
+    if (!token || document.hidden || !cal || conferindo || enviando) return;
+    conferindo = true;
+    recarregar(true).catch(() => {}).finally(() => { conferindo = false; });
+  }, 120000);
 
   /* ── 3. Preços e regras ── */
   const cfgForm = $('#adm-config');
@@ -301,10 +360,13 @@
       const el = cfgForm.elements[k];
       const valor = el.value.trim();
       const minimo = k.startsWith('preco') ? 1 : Number(el.min || 0);
-      if (valor === '' || !Number.isFinite(Number(valor)) || Number(valor) < minimo) {
+      const maximo = k.startsWith('preco') ? 100000 : Number(el.max || Infinity);
+      const n = Number(valor);
+      const inteiroOk = k.startsWith('preco') || Number.isInteger(n);
+      if (valor === '' || !Number.isFinite(n) || n < minimo || n > maximo || !inteiroOk) {
         $('#cfg-msg').textContent = k.startsWith('preco')
-          ? 'Preencha todos os preços com valores maiores que zero.'
-          : 'Preencha todos os campos com números válidos.';
+          ? 'Preencha todos os preços com valores entre R$ 1 e R$ 100.000.'
+          : `Use um número inteiro entre ${minimo} e ${maximo} em "${el.closest('label')?.querySelector('span')?.textContent || k}".`;
         el.setAttribute('aria-invalid', 'true');
         el.focus();
         return;
@@ -313,16 +375,19 @@
       config[k] = Number(valor);
     }
     config.semana = SEMANA.map((_, i) => cfgForm.elements[`semana-${i}`].checked);
+    const botao = cfgForm.querySelector('button[type="submit"]');
+    if (botao?.disabled) return;
+    if (botao) botao.disabled = true;
     try {
       await api('POST', { acao: 'config', config });
-      await recarregar();
-      configForm();
       $('#cfg-ok').textContent = 'Padrões salvos.';
+      try { await recarregar(); configForm(); } catch (err) { $('#cfg-ok').textContent = `Padrões salvos, mas a tela não atualizou (${err.message}).`; }
     } catch (err) { $('#cfg-msg').textContent = err.message; }
+    finally { if (botao) botao.disabled = false; }
   });
 
-  // Senha guardada na sessão: se a internet falhar, mostra o motivo em vez de sair calado
-  if (senha) {
+  // Sessão guardada: se a internet falhar, mostra o motivo em vez de sair calado
+  if (token) {
     entrar().catch((err) => {
       $('#login').hidden = false;
       $('#login-msg').textContent = err.message;

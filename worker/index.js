@@ -2,7 +2,8 @@
    GET  /api/disponibilidade?mes=AAAA-MM   dias do mês com estado e preço (sem dados de clientes)
    POST /api/criar-reserva                 { inicio, dias, nome, whatsapp } → init_point do Mercado Pago
    POST /api/webhook-mp                    notificação do Mercado Pago
-   GET/POST /api/admin                     painel da dona (senha em ADMIN_PASSWORD) */
+   GET  /api/status?id=...                 situação de uma reserva (só o estado, sem dados do cliente)
+   GET/POST /api/admin                     painel da dona (login com ADMIN_PASSWORD → token de sessão) */
 import {
   MIN_SEGURA, RE_MES, RE_ID, json, hojeSP, isoSP, dataValida, somaDias, somaMeses, fimDoMes, intervalo, dataBR,
   lerConfig, lerAjustes, lerOcupacao, montarDia, calcularPreco, situacao, novoId, CONFIG_PADRAO,
@@ -12,24 +13,53 @@ import {
 } from './servicos.js';
 
 /* Sem Access Token do Mercado Pago, a reserva vira um pedido pelo WhatsApp do salão (a data fica guardada por HORAS_PEDIDO) */
-const temMP = (env) => !!(modoMP(env) === 'teste' ? env.MP_ACCESS_TOKEN_TESTE : env.MP_ACCESS_TOKEN);
+// Sem o segredo do webhook o pagamento nunca seria confirmado: nesse caso o site também usa o pedido pelo WhatsApp
+const tokenMP = (env) => !!(modoMP(env) === 'teste' ? env.MP_ACCESS_TOKEN_TESTE : env.MP_ACCESS_TOKEN);
+const temMP = (env) => tokenMP(env) && !!env.MP_WEBHOOK_SECRET;
 const HORAS_PEDIDO = 24;
 const MAX_ABERTOS_POR_PESSOA = 3;     // pedidos/pagamentos em aberto ao mesmo tempo, por conexão
 const MAX_TENTATIVAS_SENHA = 10;      // erros de senha do painel em 15 minutos
-
-/* Resumo do IP (SHA-256): serve para limitar abusos sem guardar o endereço de ninguém */
-async function ipHash(req) {
-  const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || 'local';
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`aconchego:${ip}`));
-  return [...new Uint8Array(bytes)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+const HORAS_SESSAO = 12;              // validade do login do painel
+const MAX_CORPO = 16 * 1024;          // tamanho máximo do corpo das requisições
+const objeto = (b) => b !== null && typeof b === 'object' && !Array.isArray(b);
+/* Lê o corpo JSON com limite de tamanho: devolve o objeto, GRANDE, ou undefined se não for JSON */
+const GRANDE = Symbol('grande');
+async function lerJSON(req) {
+  const t = await req.text();
+  if (t.length > MAX_CORPO) return GRANDE;
+  try { return JSON.parse(t || 'null'); } catch { return undefined; }
 }
 
-const ORIGENS = ['https://ccpaschoal.github.io']; // versão do GitHub Pages também usa esta API
+/* HMAC-SHA256 em hexadecimal */
+async function hmac(segredo, texto) {
+  const chave = await crypto.subtle.importKey('raw', new TextEncoder().encode(segredo), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const bytes = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(texto));
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* Resumo do IP com segredo (HMAC): limita abusos sem guardar o endereço e sem dar para descobrir o IP pelo resumo.
+   Só o CF-Connecting-IP vale (a Cloudflare preenche); X-Forwarded-For pode ser inventado por quem chama. */
+async function ipHash(req, env) {
+  const ip = req.headers.get('CF-Connecting-IP') || 'local';
+  return (await hmac(`ip:${env.IP_SALT || env.ADMIN_PASSWORD || 'aconchego'}`, ip)).slice(0, 32);
+}
+
+/* Login do painel: token "validade.assinatura", assinado com a própria senha (trocar a senha derruba todas as sessões) */
+const assinarSessao = async (env, exp) => `${exp}.${await hmac(`sessao:${String(env.ADMIN_PASSWORD).trim()}`, String(exp))}`;
+async function sessaoValida(env, token) {
+  const n = Number(String(token || '').split('.')[0]);
+  if (!Number.isInteger(n) || n < Date.now() || n > Date.now() + HORAS_SESSAO * 3600e3) return false;
+  return iguais(await assinarSessao(env, n), String(token));
+}
+
+const ORIGENS = ['https://ccpaschoal.github.io']; // versão do GitHub Pages usa as rotas públicas (o painel não)
+const PUBLICAS = ['/api/disponibilidade', '/api/criar-reserva', '/api/status'];
 const cors = (req) => {
   const o = req.headers.get('Origin');
   return ORIGENS.includes(o) ? { 'Access-Control-Allow-Origin': o, 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', Vary: 'Origin' } : {};
 };
 const OCUPADO = 'Essa data acabou de ser reservada por outra pessoa. Escolha outra data.';
+const FECHADO = 'Essa data não está aberta para reservas. Escolha outra data.';
 
 /* ── Disponibilidade ── */
 async function disponibilidade(req, env) {
@@ -55,8 +85,10 @@ async function disponibilidade(req, env) {
 async function criarReserva(req, env, ctx) {
   const h = cors(req);
   let b;
-  try { b = await req.json(); } catch { return json({ erro: 'Dados inválidos.' }, 400, h); }
-  if (b?.site) return json({ erro: 'Dados inválidos.' }, 400, h); // campo-isca contra robôs
+  b = await lerJSON(req);
+  if (b === GRANDE) return json({ erro: 'Dados grandes demais.' }, 413, h);
+  if (!objeto(b)) return json({ erro: 'Dados inválidos.' }, 400, h);
+  if (b.site) return json({ erro: 'Dados inválidos.' }, 400, h); // campo-isca contra robôs
   const inicio = String(b.inicio || '');
   const nDias = Number(b.dias);
   const nome = String(b.nome || '').replace(/\s+/g, ' ').trim();
@@ -73,30 +105,31 @@ async function criarReserva(req, env, ctx) {
   const hoje = hojeSP(agora);
   const fim = somaDias(inicio, nDias - 1);
   const datas = intervalo(inicio, fim);
-  const ip = await ipHash(req);
+  const ip = await ipHash(req, env);
 
-  // Evita que alguém segure a agenda inteira com pedidos falsos
+  // Evita que alguém segure a agenda inteira com pedidos falsos: conta por conexão e também por WhatsApp
   const abertos = (await db.prepare(`SELECT COUNT(*) AS n FROM reservas WHERE ip_hash = ? AND status IN ('pendente', 'pedido') AND expira_em > ?`)
     .bind(ip, agora).first()).n;
+  const abertosWpp = (await db.prepare(`SELECT COUNT(*) AS n FROM reservas WHERE whatsapp = ? AND status IN ('pendente', 'pedido') AND expira_em > ?`)
+    .bind(whatsapp, agora).first()).n;
 
   // A mesma pessoa tentando de novo (voltou do erro do cartão) não fica presa na própria reserva pendente.
   // Precisa ser o mesmo WhatsApp E a mesma conexão, para ninguém derrubar o pedido de outra pessoa digitando o número dela.
   const { results: minhas } = await db.prepare(`SELECT DISTINCT r.id FROM reservas r JOIN ocupacao o ON o.reserva_id = r.id
     WHERE r.status IN ('pendente', 'pedido') AND r.whatsapp = ? AND r.ip_hash = ? AND o.expira_em > ? AND o.data BETWEEN ? AND ?`)
     .bind(whatsapp, ip, agora, inicio, fim).all();
-  if (abertos - minhas.length >= MAX_ABERTOS_POR_PESSOA) {
+  if (Math.max(abertos, abertosWpp) - minhas.length >= MAX_ABERTOS_POR_PESSOA) {
     return json({ erro: 'Você já tem pedidos em aberto. Fale com a gente pelo WhatsApp para alterar.' }, 429, h);
   }
-  if (minhas.length) {
-    await db.batch(minhas.flatMap(({ id }) => [
-      db.prepare("UPDATE reservas SET status = 'substituida' WHERE id = ?").bind(id),
-      db.prepare('DELETE FROM ocupacao WHERE reserva_id = ?').bind(id),
-    ]));
-  }
 
+  // Confere tudo ANTES de mexer na reserva antiga: se a nova falhar, a pessoa não perde a que já tinha.
+  // Os dias guardados para ela mesma contam como livres nesta conferência.
   const [ajustes, ocupacao] = await Promise.all([lerAjustes(db, inicio, fim), lerOcupacao(db, inicio, fim, agora)]);
+  const minhasIds = new Set(minhas.map((m) => m.id));
+  for (const [data, oc] of Object.entries(ocupacao)) if (minhasIds.has(oc.id)) delete ocupacao[data];
   const dias = datas.map((data) => montarDia(data, { config, ajustes, ocupacao, hoje }));
-  if (dias.some((d) => d.status !== 'livre')) return json({ erro: OCUPADO }, 409, h);
+  if (dias.some((d) => d.status === 'pendente' || d.status === 'reservado')) return json({ erro: OCUPADO }, 409, h);
+  if (dias.some((d) => d.status !== 'livre')) return json({ erro: FECHADO }, 409, h);
   const { total, detalhe } = calcularPreco(dias, config);
   if (!(total > 0)) return json({ erro: 'Data sem preço definido.' }, 409, h);
 
@@ -106,6 +139,10 @@ async function criarReserva(req, env, ctx) {
   // Tudo ou nada: a chave primária de ocupacao.data impede duas reservas no mesmo dia
   try {
     await db.batch([
+      ...minhas.flatMap((m) => [
+        db.prepare("UPDATE reservas SET status = 'substituida' WHERE id = ?").bind(m.id),
+        db.prepare('DELETE FROM ocupacao WHERE reserva_id = ?').bind(m.id),
+      ]),
       db.prepare(`DELETE FROM ocupacao WHERE data BETWEEN ? AND ? AND expira_em IS NOT NULL AND expira_em <= ?`).bind(inicio, fim, agora),
       ...datas.map((d) => db.prepare('INSERT INTO ocupacao (data, reserva_id, expira_em) VALUES (?, ?, ?)').bind(d, id, expira)),
       db.prepare(`INSERT INTO reservas (id, inicio, fim, datas, nome, whatsapp, convidados, valor, detalhe, status, criada_em, expira_em, ambiente, ip_hash)
@@ -158,9 +195,13 @@ async function criarReserva(req, env, ctx) {
       statement_descriptor: 'ACONCHEGO',
       metadata: { reserva_id: id },
     }, id);
+    if (!/^https:\/\//.test(pref?.init_point || '')) throw new Error('Mercado Pago respondeu sem link de pagamento');
     return json({ id, init_point: pref.init_point, expiraEm: new Date(expira).toISOString(), valor: total }, 200, h);
   } catch (e) {
     console.error('Mercado Pago:', e?.message, JSON.stringify(e?.detalhe || ''));
+    // Tempo esgotado: o link pode ter sido criado mesmo assim. A reserva fica (vence sozinha em MIN_SEGURA minutos)
+    // para um pagamento que chegue depois ainda encontrar a reserva.
+    if (e?.name === 'TimeoutError') return json({ erro: 'Não foi possível abrir o pagamento agora. Tente de novo em instantes.' }, 502, h);
     await db.batch([
       db.prepare('DELETE FROM ocupacao WHERE reserva_id = ?').bind(id),
       db.prepare('DELETE FROM reservas WHERE id = ?').bind(id),
@@ -174,21 +215,26 @@ async function avisar(env, r) {
   const chave = `${r.id}_${r.status}`;
   const trava = await env.DB.prepare('INSERT INTO alertas (chave, em) VALUES (?, ?) ON CONFLICT(chave) DO NOTHING').bind(chave, Date.now()).run();
   if (!trava.meta.changes) return; // já avisado
-  const valor = `R$ ${Number(r.valor_pago ?? r.valor).toFixed(2).replace('.', ',')}`;
-  await env.DB.prepare('INSERT INTO avisos (chave, em, tipo, texto, reserva_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT(chave) DO NOTHING')
-    .bind(chave, Date.now(), r.status, `${titulo(r)}\n${r.nome} · ${quando(r)} · ${valor}${r.whatsapp ? ` · WhatsApp ${r.whatsapp}` : ''}`, r.id).run();
-  const canais = await Promise.all([enviarEmail(env, r), enviarWhatsApp(env, textoAlerta(r)), enviarNtfy(env, r)]);
-  console.log('alertas', r.id, canais);
-  if (!canais.includes(true) && canais.includes(false)) {
-    await env.DB.prepare('DELETE FROM alertas WHERE chave = ?').bind(chave).run();
-    throw new Error('Nenhum alerta foi enviado'); // o MP reenvia mais tarde
+  // Qualquer falha daqui em diante solta a trava, para o próximo reenvio do MP tentar avisar de novo
+  try {
+    const valor = `R$ ${Number(r.valor_pago ?? r.valor).toFixed(2).replace('.', ',')}`;
+    await env.DB.prepare('INSERT INTO avisos (chave, em, tipo, texto, reserva_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT(chave) DO NOTHING')
+      .bind(chave, Date.now(), r.status, `${titulo(r)}\n${r.nome} · ${quando(r)} · ${valor}${r.whatsapp ? ` · WhatsApp ${r.whatsapp}` : ''}`, r.id).run();
+    const canais = await Promise.all([enviarEmail(env, r), enviarWhatsApp(env, textoAlerta(r)), enviarNtfy(env, r)]);
+    console.log('alertas', r.id, canais);
+    if (canais.every((c) => c === null)) console.error('alertas: nenhum canal configurado (e-mail, WhatsApp ou ntfy); o aviso só aparece no painel');
+    if (!canais.includes(true) && canais.includes(false)) throw new Error('Nenhum alerta foi enviado'); // o MP reenvia mais tarde
+  } catch (e) {
+    await env.DB.prepare('DELETE FROM alertas WHERE chave = ?').bind(chave).run().catch(() => {});
+    throw e;
   }
 }
 
 async function webhook(req, env) {
   const url = new URL(req.url);
   let corpo = {};
-  try { corpo = JSON.parse((await req.text()) || '{}'); } catch { /* corpo vazio */ }
+  corpo = await lerJSON(req); // corpo vazio, inválido ou grande: vale só o que vem na URL
+  if (!objeto(corpo)) corpo = {};
   const tipo = corpo.type || url.searchParams.get('type') || url.searchParams.get('topic');
   const pagamentoId = url.searchParams.get('data.id') || corpo?.data?.id;
   if (tipo !== 'payment' || !pagamentoId) return new Response('ignorado');
@@ -206,7 +252,10 @@ async function webhook(req, env) {
   if (!RE_ID.test(id)) return new Response('sem reserva');
   const db = env.DB;
   let r = await db.prepare('SELECT * FROM reservas WHERE id = ?').bind(id).first();
-  if (!r) return new Response('reserva não encontrada');
+  if (!r) {
+    console.error('webhook: pagamento sem reserva correspondente, conferir no Mercado Pago', pagamentoId, id, pg.status);
+    return new Response('reserva não encontrada');
+  }
   const agora = Date.now();
 
   if (pg.status === 'approved') {
@@ -218,7 +267,7 @@ async function webhook(req, env) {
         // guardados para ela mesma (mesmo WhatsApp), para o pagamento não virar conflito à toa
         const minhas = r.whatsapp ? (await db.prepare(`SELECT DISTINCT o.reserva_id AS id FROM ocupacao o JOIN reservas x ON x.id = o.reserva_id
           WHERE o.data BETWEEN ? AND ? AND o.reserva_id <> ? AND o.expira_em IS NOT NULL
-            AND x.status IN ('pendente', 'pedido') AND x.whatsapp = ?`).bind(r.inicio, r.fim, id, r.whatsapp).all()).results : [];
+            AND x.status IN ('pendente', 'pedido') AND x.whatsapp = ? AND x.ip_hash IS ?`).bind(r.inicio, r.fim, id, r.whatsapp, r.ip_hash ?? null).all()).results : [];
         // Confirma os dias: tira pendências vencidas de outras pessoas e firma os dias que ainda são desta reserva ou estão livres
         await db.batch([
           ...minhas.flatMap(({ id: outra }) => [
@@ -251,23 +300,53 @@ async function webhook(req, env) {
 }
 
 /* ── Admin ── */
-async function admin(req, env) {
-  if (!env.ADMIN_PASSWORD) return json({ erro: 'Configure o segredo ADMIN_PASSWORD na Cloudflare.' }, 503);
+/* Entrar no painel: a senha só passa aqui, uma vez; depois o painel usa o token de sessão */
+async function entrarPainel(req, env, senha) {
   const db = env.DB;
-  const ip = await ipHash(req);
-  const agoraSenha = Date.now();
-  const erros = (await db.prepare('SELECT COUNT(*) AS n FROM tentativas WHERE ip_hash = ? AND em > ?').bind(ip, agoraSenha - 15 * 60e3).first()).n;
-  if (erros >= MAX_TENTATIVAS_SENHA) return json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' }, 429);
-  let dada = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-  try { dada = decodeURIComponent(dada); } catch { dada = ''; }
-  if (!iguais(dada, String(env.ADMIN_PASSWORD).trim())) {
-    await db.batch([
-      db.prepare('INSERT INTO tentativas (ip_hash, em) VALUES (?, ?)').bind(ip, agoraSenha),
-      db.prepare('DELETE FROM tentativas WHERE em < ?').bind(agoraSenha - 864e5),
-    ]);
+  const ip = await ipHash(req, env);
+  const agora = Date.now();
+  // A tentativa é registrada ANTES de conferir a senha: várias tentativas ao mesmo tempo também contam
+  const [registro] = await db.batch([
+    db.prepare('INSERT INTO tentativas (ip_hash, em) VALUES (?, ?)').bind(ip, agora),
+    db.prepare('DELETE FROM tentativas WHERE em < ?').bind(agora - 864e5),
+  ]);
+  const n = (await db.prepare('SELECT COUNT(*) AS n FROM tentativas WHERE ip_hash = ? AND em > ?').bind(ip, agora - 15 * 60e3).first()).n;
+  if (n > MAX_TENTATIVAS_SENHA) return json({ erro: 'Muitas tentativas. Espere 15 minutos e tente de novo.' }, 429);
+  if (!iguais(String(senha ?? ''), String(env.ADMIN_PASSWORD).trim())) {
     await new Promise((r) => setTimeout(r, 800)); // atrasa quem tenta adivinhar
     return json({ erro: 'Senha incorreta.' }, 401);
   }
+  const id = registro?.meta?.last_row_id;
+  if (id) await db.prepare('DELETE FROM tentativas WHERE rowid = ?').bind(id).run(); // senha certa não conta como erro
+  const exp = agora + HORAS_SESSAO * 3600e3;
+  return json({ token: await assinarSessao(env, exp), expira: exp });
+}
+
+/* Problemas de configuração que a dona precisa saber (aparecem no topo do painel) */
+function pendenciasConfig(env) {
+  const p = [];
+  if (tokenMP(env) && !env.MP_WEBHOOK_SECRET) p.push('Falta o segredo MP_WEBHOOK_SECRET: o Mercado Pago fica desligado e as reservas viram pedido pelo WhatsApp.');
+  if (!(env.RESEND_API_KEY && env.EMAIL_DONA) && !(env.CALLMEBOT_PHONE && env.CALLMEBOT_APIKEY) && !env.NTFY_TOPICO) {
+    p.push('Nenhum aviso configurado (e-mail, WhatsApp ou ntfy): pedidos e pagamentos novos só aparecem aqui no painel.');
+  }
+  return p;
+}
+
+async function admin(req, env) {
+  if (!env.ADMIN_PASSWORD) {
+    console.error('admin: segredo ADMIN_PASSWORD não configurado');
+    return json({ erro: 'Painel indisponível no momento.' }, 503);
+  }
+  const db = env.DB;
+  let b = null;
+  if (req.method === 'POST') {
+    b = await lerJSON(req);
+    if (b === GRANDE) return json({ erro: 'Dados grandes demais.' }, 413);
+    if (!objeto(b)) return json({ erro: 'Dados inválidos.' }, 400);
+    if (b.acao === 'entrar') return entrarPainel(req, env, b.senha);
+  }
+  const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!(await sessaoValida(env, token))) return json({ erro: 'Sessão expirada. Entre de novo.' }, 401);
   if (req.method === 'GET') {
     const agora = Date.now();
     const hoje = hojeSP(agora);
@@ -280,14 +359,12 @@ async function admin(req, env) {
       db.prepare('SELECT * FROM avisos ORDER BY em DESC LIMIT 50').all(),
     ]);
     return json({
-      mes, hoje, config, avisos: avisos.results, pagamento: temMP(env) ? 'mercadopago' : 'whatsapp',
+      mes, hoje, config, avisos: avisos.results, pagamento: temMP(env) ? 'mercadopago' : 'whatsapp', pendencias: pendenciasConfig(env),
       dias: intervalo(de, ate).map((data) => montarDia(data, { config, ajustes, ocupacao, hoje, admin: true })),
       reservas: lista.results.map((r) => ({ ...r, situacao: situacao(r, agora) })),
     });
   }
   if (req.method !== 'POST') return json({ erro: 'Método não permitido.' }, 405);
-  let b;
-  try { b = await req.json(); } catch { return json({ erro: 'Dados inválidos.' }, 400); }
   const dinheiro = (v) => { const n = Math.round(Number(v) * 100) / 100; return Number.isFinite(n) && n >= 0 && n <= 100000 ? n : null; };
   const inteiro = (v, min, max, padrao) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : padrao; };
 
@@ -378,6 +455,11 @@ async function admin(req, env) {
     if (!RE_ID.test(b.id || '')) return json({ erro: 'Reserva inválida.' }, 400);
     const r = await db.prepare('SELECT status FROM reservas WHERE id = ?').bind(b.id).first();
     if (!r) return json({ erro: 'Reserva não encontrada.' }, 404);
+    // Reserva paga: o dinheiro precisa ser devolvido no Mercado Pago (o estorno libera a data sozinho).
+    // Só cancela direto se a dona disser que já devolveu por fora.
+    if (r.status === 'paga' && b.jaDevolvido !== true) {
+      return json({ erro: 'Reserva paga: devolva o dinheiro no Mercado Pago. Quando o estorno sair, a data é liberada sozinha.' }, 409);
+    }
     await db.batch([
       db.prepare('DELETE FROM ocupacao WHERE reserva_id = ?').bind(b.id),
       r.status === 'bloqueio'
@@ -389,9 +471,19 @@ async function admin(req, env) {
   return json({ erro: 'Ação desconhecida.' }, 400);
 }
 
+/* ── Situação de uma reserva (página de sucesso confere antes de dizer "aprovado") ── */
+async function statusReserva(req, env) {
+  const id = new URL(req.url).searchParams.get('id') || '';
+  if (!RE_ID.test(id)) return json({ erro: 'Reserva inválida.' }, 400);
+  const r = await env.DB.prepare('SELECT status, expira_em FROM reservas WHERE id = ?').bind(id).first();
+  if (!r) return json({ erro: 'Reserva não encontrada.' }, 404);
+  return json({ status: situacao(r, Date.now()) }, 200, { 'Cache-Control': 'no-store' });
+}
+
 /* ── Roteamento ── */
 const ROTAS = {
   'GET /api/disponibilidade': disponibilidade,
+  'GET /api/status': statusReserva,
   'POST /api/criar-reserva': criarReserva,
   'POST /api/webhook-mp': webhook,
   'GET /api/admin': admin,
@@ -401,17 +493,21 @@ const ROTAS = {
 export default {
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
-    if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(req) });
-    const rota = ROTAS[`${req.method} ${url.pathname.replace(/\/$/, '')}`];
-    if (!rota) return json({ erro: 'Não encontrado.' }, 404);
+    const caminho = url.pathname.replace(/\/$/, '');
+    // CORS só nas rotas públicas: o painel e o webhook não aceitam chamadas de outros sites
+    const h = PUBLICAS.includes(caminho) ? cors(req) : {};
     try {
+      if (!url.pathname.startsWith('/api/')) return await env.ASSETS.fetch(req);
+      if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: h });
+      const rota = ROTAS[`${req.method} ${caminho}`];
+      if (!rota) return json({ erro: 'Não encontrado.' }, 404);
+      if (Number(req.headers.get('Content-Length') || 0) > MAX_CORPO) return json({ erro: 'Dados grandes demais.' }, 413, h);
       const resp = await rota(req, env, ctx);
-      for (const [k, v] of Object.entries(cors(req))) resp.headers.set(k, v);
+      for (const [k, v] of Object.entries(h)) resp.headers.set(k, v);
       return resp;
     } catch (e) {
       console.error(url.pathname, e?.stack || e);
-      return json({ erro: 'Erro no servidor. Tente de novo.' }, 500, cors(req));
+      return json({ erro: 'Erro no servidor. Tente de novo.' }, 500, h);
     }
   },
 };
