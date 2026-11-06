@@ -75,7 +75,7 @@ Reserva online com pagamento pelo **Mercado Pago (Checkout Pro: Pix e cartão)**
 - Feriados automáticos: nacionais, Carnaval e Corpus Christi. Feriados de Goiás e de Trindade a dona marca no calendário do admin (*Feriado → É feriado*), assim como pode desmarcar qualquer um.
 
 **Como funciona**
-1. O cliente escolhe o dia, quantos dias e preenche nome, WhatsApp e convidados.
+1. O cliente escolhe o dia, quantos dias e preenche nome e WhatsApp.
 2. A API recalcula o preço, segura os dias como **pendentes por 30 min** (o banco não deixa dois clientes pegarem o mesmo dia) e manda para o Mercado Pago.
 3. O Mercado Pago avisa `/api/webhook-mp`; a API confere a assinatura, consulta o pagamento e marca a reserva como **paga**.
 4. A dona recebe **e-mail** (Resend) e **WhatsApp** (CallMeBot), uma vez só por reserva.

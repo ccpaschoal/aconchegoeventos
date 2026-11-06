@@ -67,7 +67,6 @@ function linhas(r) {
     ['Cálculo', r.detalhe || '-'],
     ['Cliente', r.nome],
     ['WhatsApp', `${fone(r.whatsapp)} · wa.me/55${r.whatsapp}`],
-    ['Convidados', String(r.convidados ?? '-')],
     ['Pagamento MP', r.pagamento_id || '-'],
     ['Código', r.id],
   ];

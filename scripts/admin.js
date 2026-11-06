@@ -127,7 +127,7 @@
       <div class="adm-periodo-topo"><span class="selo is-${seloCls}">${esc(seloTxt)}</span>${d.feriado ? `<span class="selo">Feriado${d.nomeFeriado ? `: ${esc(d.nomeFeriado)}` : ''}</span>` : ''}</div>
       ${MOTIVO[d.motivo] ? `<p class="nota">${MOTIVO[d.motivo]}</p>` : ''}
       ${r ? `<div class="adm-periodo">
-        <p class="adm-cliente"><b>${esc(r.nome)}</b>${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : ''}${r.convidados ? ` · ${r.convidados} convidados` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}<br>Reserva: ${quando(r)}</p>
+        <p class="adm-cliente"><b>${esc(r.nome)}</b>${r.whatsapp ? ` · <a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : ''}${r.valor ? ` · ${reais(r.valor)}` : ''}<br>Reserva: ${quando(r)}</p>
         ${r.status === 'bloqueio' ? `<div><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Liberar bloqueio</button></div>` : ''}
         ${r.status === 'pedido' ? `<div class="acoes"><button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar reserva</button><button type="button" class="btn btn-linha c-azul btn-mini" data-liberar="${esc(r.id)}">Recusar pedido</button></div>` : ''}
       </div>` : ''}
@@ -199,14 +199,13 @@
     const caixa = $('#adm-reservas');
     if (!lista.length) { caixa.innerHTML = '<p class="adm-vazio">Nenhuma reserva aqui.</p>'; return; }
     caixa.innerHTML = `<table class="adm-tabela">
-      <thead><tr><th scope="col">Data</th><th scope="col">Cliente</th><th scope="col">WhatsApp</th><th scope="col">Conv.</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+      <thead><tr><th scope="col">Data</th><th scope="col">Cliente</th><th scope="col">WhatsApp</th><th scope="col">Valor</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
       <tbody>${lista.map((r) => {
         const pode = ['paga', 'pedido', 'confirmada', 'pendente', 'conflito', 'bloqueio'].includes(r.situacao);
         return `<tr>
           <td><b>${quando(r)}</b><br><small>${SEMANA[diaSemana(r.inicio)]}${r.inicio !== r.fim ? ` a ${SEMANA[diaSemana(r.fim)].toLowerCase()}` : ''}</small></td>
           <td>${esc(r.nome)}${r.obs ? `<br><small>${esc(r.obs)}</small>` : ''}</td>
           <td>${r.whatsapp ? `<a href="https://wa.me/55${esc(r.whatsapp)}" target="_blank" rel="noopener">${fone(r.whatsapp)}</a>` : '-'}</td>
-          <td>${r.convidados ?? '-'}</td>
           <td>${r.valor ? reais(r.valor_pago ?? r.valor) : '-'}${r.detalhe ? `<br><small>${esc(r.detalhe)}</small>` : ''}</td>
           <td><span class="selo is-${esc(r.situacao)}">${SITUACAO[r.situacao] || esc(r.situacao)}</span></td>
           <td class="acoes">${r.situacao === 'pedido' ? `<button type="button" class="btn btn-azul btn-mini" data-confirmar="${esc(r.id)}">Confirmar</button>` : ''}${pode ? `<button type="button" class="btn btn-linha c-azul btn-mini" data-cancelar="${esc(r.id)}">${r.situacao === 'bloqueio' ? 'Liberar' : 'Cancelar'}</button>` : ''}</td>
@@ -259,7 +258,7 @@
 
   /* ── 3. Preços e regras ── */
   const cfgForm = $('#adm-config');
-  const CAMPOS = ['precoDiaria', 'precoFeriado', 'precoPacote', 'antecedenciaDias', 'mesesAFrente', 'maxConvidados', 'maxDias'];
+  const CAMPOS = ['precoDiaria', 'precoFeriado', 'precoPacote', 'antecedenciaDias', 'mesesAFrente', 'maxDias'];
 
   function configForm() {
     const c = dados.config;

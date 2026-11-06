@@ -162,10 +162,7 @@
       <fieldset class="agenda-dados" disabled>
         <legend class="agenda-passo"><span aria-hidden="true">3</span> Seus dados</legend>
         <label class="campo"><span>Nome</span><input name="nome" autocomplete="name" maxlength="80" required></label>
-        <div class="agenda-linha">
-          <label class="campo"><span>WhatsApp</span><input name="whatsapp" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(62) 9 0000-0000" maxlength="16" required></label>
-          <label class="campo"><span>Convidados</span><input name="convidados" type="number" inputmode="numeric" min="1" step="1" required></label>
-        </div>
+        <label class="campo"><span>WhatsApp</span><input name="whatsapp" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="(62) 9 0000-0000" maxlength="16" required></label>
         <label class="agenda-isca" aria-hidden="true">Não preencha <input name="site" tabindex="-1" autocomplete="off"></label>
       </fieldset>
       <p class="agenda-resumo" aria-live="polite"></p>
@@ -226,7 +223,6 @@
       const j = await buscar(mes);
       if (!info) {
         cal.limites(j.de, j.ate);
-        campo('convidados').max = j.maxConvidados;
         if (j.pagamento === 'whatsapp') {
           btn.textContent = TXT_BTN = 'Enviar pedido pelo WhatsApp';
           form.querySelector('.agenda-nota').textContent = `Você confirma a reserva e combina o pagamento com a gente pelo WhatsApp. A data fica guardada por ${j.horasPedido} horas.`;
@@ -322,12 +318,9 @@
   form.addEventListener('input', (e) => e.target.removeAttribute?.('aria-invalid'));
 
   function valida() {
-    const max = info?.maxConvidados || 1000;
     const whats = campo('whatsapp').value.replace(/\D/g, '');
-    const conv = Number(campo('convidados').value);
     if (campo('nome').value.trim().length < 3) return erroCampo('nome', 'Informe seu nome.');
     if (whats.length < 10 || whats.length > 11) return erroCampo('whatsapp', 'Informe o WhatsApp com DDD.');
-    if (!Number.isInteger(conv) || conv < 1 || conv > max) return erroCampo('convidados', `Informe de 1 a ${max} convidados.`);
     return true;
   }
 
@@ -345,7 +338,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inicio: escolha.inicio, dias: escolha.n, nome: campo('nome').value.trim(),
-          whatsapp: campo('whatsapp').value, convidados: Number(campo('convidados').value), site: campo('site').value,
+          whatsapp: campo('whatsapp').value, site: campo('site').value,
         }),
       }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};

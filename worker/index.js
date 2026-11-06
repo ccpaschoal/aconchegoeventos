@@ -1,6 +1,6 @@
 /* Aconchego · API de reservas (Cloudflare Worker + D1). O resto do site sai da pasta dist.
    GET  /api/disponibilidade?mes=AAAA-MM   dias do mês com estado e preço (sem dados de clientes)
-   POST /api/criar-reserva                 { inicio, dias, nome, whatsapp, convidados } → init_point do Mercado Pago
+   POST /api/criar-reserva                 { inicio, dias, nome, whatsapp } → init_point do Mercado Pago
    POST /api/webhook-mp                    notificação do Mercado Pago
    GET/POST /api/admin                     painel da dona (senha em ADMIN_PASSWORD) */
 import {
@@ -62,7 +62,6 @@ async function criarReserva(req, env, ctx) {
   const nome = String(b.nome || '').replace(/\s+/g, ' ').trim();
   let whatsapp = String(b.whatsapp || '').replace(/\D/g, '');
   if (whatsapp.length >= 12 && whatsapp.startsWith('55')) whatsapp = whatsapp.slice(2);
-  const convidados = Number(b.convidados);
   if (!dataValida(inicio)) return json({ erro: 'Escolha uma data válida.' }, 400, h);
   if (nome.length < 3 || nome.length > 80) return json({ erro: 'Informe seu nome.' }, 400, h);
   if (!/^[1-9]{2}9?\d{8}$/.test(whatsapp)) return json({ erro: 'Informe o WhatsApp com DDD.' }, 400, h);
@@ -70,9 +69,6 @@ async function criarReserva(req, env, ctx) {
   const db = env.DB;
   const config = await lerConfig(db);
   if (!Number.isInteger(nDias) || nDias < 1 || nDias > config.maxDias) return json({ erro: `Escolha de 1 a ${config.maxDias} dias.` }, 400, h);
-  if (!Number.isInteger(convidados) || convidados < 1 || convidados > config.maxConvidados) {
-    return json({ erro: `Informe de 1 a ${config.maxConvidados} convidados.` }, 400, h);
-  }
   const agora = Date.now();
   const hoje = hojeSP(agora);
   const fim = somaDias(inicio, nDias - 1);
@@ -114,7 +110,7 @@ async function criarReserva(req, env, ctx) {
       ...datas.map((d) => db.prepare('INSERT INTO ocupacao (data, reserva_id, expira_em) VALUES (?, ?, ?)').bind(d, id, expira)),
       db.prepare(`INSERT INTO reservas (id, inicio, fim, datas, nome, whatsapp, convidados, valor, detalhe, status, criada_em, expira_em, ambiente, ip_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(id, inicio, fim, JSON.stringify(datas), nome, whatsapp, convidados, total, detalhe,
+        .bind(id, inicio, fim, JSON.stringify(datas), nome, whatsapp, null, total, detalhe,
           pedido ? 'pedido' : 'pendente', agora, expira, pedido ? 'whatsapp' : modoMP(env), ip),
     ]);
   } catch (e) {
@@ -130,7 +126,6 @@ async function criarReserva(req, env, ctx) {
       `${quando(r)} · ${nDias} ${nDias === 1 ? 'diária' : 'diárias'}`,
       `Valor: R$ ${total.toFixed(2).replace('.', ',')} (${detalhe})`,
       `Nome: ${nome}`,
-      `Convidados: ${convidados}`,
       `Código: ${id}`,
     ].join('\n');
     const wa = `https://wa.me/${String(env.WHATSAPP_SALAO || '5562994127148').replace(/\D/g, '')}?text=${encodeURIComponent(texto)}`;
@@ -144,7 +139,7 @@ async function criarReserva(req, env, ctx) {
       items: [{
         id: 'diaria',
         title: `Reserva Aconchego · ${periodo}`,
-        description: `${nDias} ${nDias === 1 ? 'diária' : 'diárias'} · ${convidados} convidados`,
+        description: `${nDias} ${nDias === 1 ? 'diária' : 'diárias'}`,
         quantity: 1,
         unit_price: total,
         currency_id: 'BRL',
