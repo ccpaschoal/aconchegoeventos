@@ -19,7 +19,7 @@ async function mp(env, caminho, { metodo = 'GET', corpo, idempotencia } = {}) {
     signal: AbortSignal.timeout(10000),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j.message || `Mercado Pago ${r.status}`), { status: r.status, detalhe: j });
+  if (!r.ok) throw Object.assign(new Error(`Mercado Pago ${r.status}`), { status: r.status });
   return j;
 }
 export const criarPreferencia = (env, corpo, idempotencia) => mp(env, '/checkout/preferences', { metodo: 'POST', corpo, idempotencia });
@@ -98,10 +98,10 @@ export async function enviarEmail(env, r) {
       }),
       signal: AbortSignal.timeout(10000),
     });
-    if (!resp.ok) console.error('Resend:', resp.status, (await resp.text()).slice(0, 300));
+    if (!resp.ok) console.error('Resend: falha de envio', resp.status);
     return resp.ok;
   } catch (e) {
-    console.error('Resend:', e?.message);
+    console.error('Resend: falha de conexão');
     return false;
   }
 }
@@ -124,10 +124,10 @@ export async function enviarNtfy(env, r) {
       }),
       signal: AbortSignal.timeout(10000),
     });
-    if (!resp.ok) console.error('ntfy:', resp.status, (await resp.text()).slice(0, 200));
+    if (!resp.ok) console.error('ntfy: falha de envio', resp.status);
     return resp.ok;
   } catch (e) {
-    console.error('ntfy:', e?.message);
+    console.error('ntfy: falha de conexão');
     return false;
   }
 }
@@ -139,10 +139,10 @@ export async function enviarWhatsApp(env, texto) {
       { signal: AbortSignal.timeout(10000) });
     const corpo = await r.text();
     const ok = r.ok && !/invalid|error|not allowed/i.test(corpo);
-    if (!ok) console.error('CallMeBot:', r.status, corpo.slice(0, 200));
+    if (!ok) console.error('CallMeBot: falha de envio', r.status);
     return ok;
   } catch (e) {
-    console.error('CallMeBot:', e?.message);
+    console.error('CallMeBot: falha de conexão');
     return false;
   }
 }

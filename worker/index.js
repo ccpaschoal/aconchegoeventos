@@ -25,9 +25,27 @@ const objeto = (b) => b !== null && typeof b === 'object' && !Array.isArray(b);
 /* Lê o corpo JSON com limite de tamanho: devolve o objeto, GRANDE, ou undefined se não for JSON */
 const GRANDE = Symbol('grande');
 async function lerJSON(req) {
-  const t = await req.text();
-  if (t.length > MAX_CORPO) return GRANDE;
-  try { return JSON.parse(t || 'null'); } catch { return undefined; }
+  if (!req.body) return null;
+  const leitor = req.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let texto = '';
+  try {
+    while (true) {
+      const { done, value } = await leitor.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_CORPO) {
+        await leitor.cancel().catch(() => {});
+        return GRANDE;
+      }
+      texto += decoder.decode(value, { stream: true });
+    }
+    texto += decoder.decode();
+  } finally {
+    leitor.releaseLock();
+  }
+  try { return JSON.parse(texto || 'null'); } catch { return undefined; }
 }
 
 /* HMAC-SHA256 em hexadecimal */
@@ -157,7 +175,7 @@ async function criarReserva(req, env, ctx) {
 
   if (pedido) {
     const r = await db.prepare('SELECT * FROM reservas WHERE id = ?').bind(id).first();
-    ctx.waitUntil(avisar(env, r).catch((e) => console.error('avisar:', e.message)));
+    ctx.waitUntil(avisar(env, r).catch(() => console.error('avisar: falha no envio')));
     const texto = [
       'Olá! Quero reservar o Aconchego:',
       `${quando(r)} · ${nDias} ${nDias === 1 ? 'diária' : 'diárias'}`,
@@ -198,7 +216,7 @@ async function criarReserva(req, env, ctx) {
     if (!/^https:\/\//.test(pref?.init_point || '')) throw new Error('Mercado Pago respondeu sem link de pagamento');
     return json({ id, init_point: pref.init_point, expiraEm: new Date(expira).toISOString(), valor: total }, 200, h);
   } catch (e) {
-    console.error('Mercado Pago:', e?.message, JSON.stringify(e?.detalhe || ''));
+    console.error('Mercado Pago: falha ao abrir pagamento', Number(e?.status) || 0);
     // Tempo esgotado: o link pode ter sido criado mesmo assim. A reserva fica (vence sozinha em MIN_SEGURA minutos)
     // para um pagamento que chegue depois ainda encontrar a reserva.
     if (e?.name === 'TimeoutError') return json({ erro: 'Não foi possível abrir o pagamento agora. Tente de novo em instantes.' }, 502, h);
@@ -245,7 +263,7 @@ async function webhook(req, env) {
   let pg;
   try { pg = await buscarPagamento(env, pagamentoId); } catch (e) {
     if (e.status === 404) return new Response('pagamento não encontrado'); // ex.: simulação do painel
-    console.error('webhook: consulta', e?.message);
+    console.error('webhook: falha na consulta do pagamento', Number(e?.status) || 0);
     return new Response('erro', { status: 500 });
   }
   const id = String(pg.external_reference || '');
@@ -289,7 +307,7 @@ async function webhook(req, env) {
       await db.batch(stmts);
       r = await db.prepare('SELECT * FROM reservas WHERE id = ?').bind(id).first();
     }
-    try { await avisar(env, r); } catch (e) { console.error(e.message); return new Response('erro', { status: 500 }); }
+    try { await avisar(env, r); } catch { console.error('webhook: falha no envio de aviso'); return new Response('erro', { status: 500 }); }
   } else if (['refunded', 'charged_back', 'cancelled'].includes(pg.status) && r.status === 'paga' && r.pagamento_id === String(pg.id)) {
     await db.batch([
       db.prepare("UPDATE reservas SET status = 'estornada' WHERE id = ?").bind(id),
@@ -506,7 +524,7 @@ export default {
       for (const [k, v] of Object.entries(h)) resp.headers.set(k, v);
       return resp;
     } catch (e) {
-      console.error(url.pathname, e?.stack || e);
+      console.error('api: falha interna');
       return json({ erro: 'Erro no servidor. Tente de novo.' }, 500, h);
     }
   },

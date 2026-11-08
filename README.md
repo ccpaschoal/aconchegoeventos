@@ -95,11 +95,19 @@ npm run banco         # aplica mudanças do banco (pasta migrations), se houver
 npm run dev           # roda tudo no computador (http://127.0.0.1:8788); antes, uma vez: npm run banco:local
 ```
 
-Para testar localmente, crie um arquivo `.dev.vars` (fica fora do git) com `ADMIN_PASSWORD=...` e as outras chaves.
+Para testar localmente, copie `.dev.vars.example` para `.dev.vars` (fica fora do git)
+e preencha somente os campos necessários. Use senha e credenciais exclusivas de
+desenvolvimento; os campos vazios do exemplo são intencionais. Sem token e assinatura
+de webhook do Mercado Pago, a reserva continua pelo WhatsApp. Não copie valores de
+produção para o exemplo versionado. O binding `DB` vem do Wrangler/D1 e não de `.env`.
 
 ### Segurança e testes
 
 - `npm test` roda os testes automáticos (preços, feriados, agenda, datas e assinatura do Mercado Pago).
+- A API limita a leitura JSON a 16 KiB de bytes UTF-8, inclusive sem `Content-Length`,
+  interrompendo o stream antes de carregar corpos excessivos na memória.
+- Logs de serviços registram somente a etapa e o status HTTP, sem corpos de respostas,
+  URLs autenticadas, mensagens externas ou stack traces que possam repetir credenciais.
 - Cada conexão pode ter no máximo 3 pedidos em aberto ao mesmo tempo (evita que alguém trave a agenda com pedidos falsos).
 - O painel bloqueia por 15 minutos depois de 10 senhas erradas seguidas.
 - Só a mesma pessoa (mesmo WhatsApp e mesma conexão) consegue refazer o próprio pedido.
@@ -113,6 +121,7 @@ Cada um com `wrangler pages secret put NOME --project-name aconchegoeventos` (co
 | Nome | Para quê |
 |---|---|
 | `ADMIN_PASSWORD` | Senha do admin.html (já configurada) |
+| `IP_SALT` | Opcional. Segredo dedicado ao resumo de IPs no controle de abuso; sem ele, usa a senha do painel |
 | `MP_ACCESS_TOKEN` | Access Token **de produção** do Mercado Pago (`APP_USR-...`) |
 | `MP_ACCESS_TOKEN_TESTE` | Access Token **de teste** |
 | `MP_MODO` | `teste` usa o token de teste; vazio ou `producao` usa o de produção |
@@ -124,8 +133,29 @@ Cada um com `wrangler pages secret put NOME --project-name aconchegoeventos` (co
 | `CALLMEBOT_APIKEY` | Chave que o CallMeBot manda no WhatsApp |
 | `NTFY_TOPICO` | Tópico secreto do app ntfy (notificação no celular, sem conta). Inscreva-se nele no app |
 | `SITE_URL` | Opcional. Endereço público, se usar domínio próprio |
+| `WHATSAPP_SALAO` | Opcional. Número público de destino dos pedidos, com país e DDD |
 
-Segredos valem na hora, sem novo deploy. Nenhuma chave fica no código.
+As credenciais privadas são lidas pelo Worker em tempo de execução, nunca pelo
+frontend. `.dev.vars` configura somente o desenvolvimento local; mantenha os valores
+de produção no ambiente correspondente da Cloudflare e confira sua aplicação na
+publicação. Não coloque segredos em `wrangler.jsonc`, no HTML ou no build público.
+O exemplo local não configura nem altera o ambiente de produção.
+
+### Organização e publicação segura
+
+- Conteúdo e links públicos: arquivos HTML. Design tokens: `:root` em `styles/style.css`.
+- Código do navegador: `scripts/`. Regras privadas, pagamento e alertas: `worker/`.
+- O token do painel fica em `sessionStorage`, dura até 12 horas e exige autenticação
+  na API; não é uma senha fixa colocada no frontend nem um token em `localStorage`.
+- `.gitignore` já exclui `.env*` e `.dev.vars*`, permitindo somente os exemplos.
+  Essas regras não protegem uma pasta servida por HTTP.
+- `build.mjs` copia explicitamente os arquivos públicos e o Worker, sem copiar
+  `.dev.vars`, `.env`, README, testes ou configuração da Cloudflare. Publique apenas
+  a saída desse build; não use a raiz local como diretório público.
+- O cabeçalho CSP, `nosniff`, política de referência e cache são gerados pelo build.
+  Não é necessário adicionar Netlify Functions, outro backend ou dependências.
+- Se uma credencial for exposta, removê-la do código não resolve o vazamento anterior:
+  o responsável deve avaliar revogação/rotação no serviço. Nunca registre seu valor.
 
 ### Credenciais
 

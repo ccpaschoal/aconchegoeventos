@@ -327,8 +327,19 @@
   window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(atualizaTudo); });
   window.addEventListener('load', atualizaTudo);
   navAltura();
+  const alvoHash = () => {
+    let id = location.hash.slice(1);
+    try { id = decodeURIComponent(id); } catch { /* fragmento malformado: não interrompe o site */ }
+    return id ? document.getElementById(id) : null;
+  };
+  // O endereço pode mudar sem recarregar a página (incluindo voltar/avançar).
+  window.addEventListener('hashchange', () => {
+    const alvo = alvoHash();
+    const i = alvo ? telas.indexOf(alvo.closest('.screen')) : location.hash ? -1 : 0;
+    if (i >= 0) go(i);
+  });
   // Link de fora com #secao abre direto na tela certa
-  const doHash = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+  const doHash = alvoHash();
   const inicial = doHash ? telas.indexOf(doHash.closest('.screen')) : -1;
   go(inicial >= 0 ? inicial : 0);
 })();

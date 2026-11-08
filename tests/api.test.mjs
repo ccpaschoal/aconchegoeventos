@@ -299,6 +299,29 @@ test('corpo null, lista ou grande demais vira 400/413, nunca 500', async () => {
   assert.equal(grande.status, 413);
 });
 
+test('limite JSON conta bytes UTF-8, não somente caracteres', async () => {
+  const r = await chamar('POST', '/api/criar-reserva', { corpo: JSON.stringify({ nome: 'é'.repeat(9000) }) });
+  assert.equal(r.status, 413);
+});
+
+test('corpo sem Content-Length interrompe a leitura assim que ultrapassa o limite', async () => {
+  let lidos = 0;
+  let cancelado = false;
+  const body = new ReadableStream({
+    pull(controller) {
+      if (lidos === 20) return controller.close();
+      lidos++;
+      controller.enqueue(new Uint8Array(8192).fill(32));
+    },
+    cancel() { cancelado = true; },
+  });
+  const req = new Request('https://teste.local/api/criar-reserva', { method: 'POST', body, duplex: 'half' });
+  const resp = await worker.fetch(req, env, { waitUntil() {} });
+  assert.equal(resp.status, 413);
+  assert.equal(cancelado, true);
+  assert.ok(lidos < 20, 'não deve carregar o corpo inteiro na memória');
+});
+
 test('reserva nova numa data ocupada não apaga a reserva antiga da mesma pessoa', async () => {
   const dia = diaComum(), outro = diaComum(5);
   const minha = (await reservar(dia)).j;

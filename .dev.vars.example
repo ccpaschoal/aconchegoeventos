@@ -1,0 +1,26 @@
+# Exemplo local do Wrangler. Copie para .dev.vars e preencha somente o necessário.
+# Valores privados ficam exclusivamente no Worker; nunca no HTML, scripts ou build.
+# Os campos vazios são intencionais: nenhuma credencial funcional acompanha o projeto.
+
+# Obrigatório para abrir o painel local; use uma senha exclusiva de desenvolvimento.
+ADMIN_PASSWORD=
+# Opcional: segredo dedicado ao resumo de IPs usado no controle de abuso.
+IP_SALT=
+
+# Pagamento opcional. Sem token E segredo de webhook, permanece o pedido por WhatsApp.
+MP_MODO=teste
+MP_ACCESS_TOKEN_TESTE=
+MP_ACCESS_TOKEN=
+MP_WEBHOOK_SECRET=
+
+# Alertas opcionais. Habilite apenas os canais que realmente utilizar.
+RESEND_API_KEY=
+EMAIL_DONA=
+EMAIL_REMETENTE=
+CALLMEBOT_PHONE=
+CALLMEBOT_APIKEY=
+NTFY_TOPICO=
+
+# Configurações do Worker que podem conter dados públicos.
+SITE_URL=http://localhost:8788
+WHATSAPP_SALAO=
