@@ -387,6 +387,12 @@
           horario: '', valor: j.valor ?? escolha.total, link: j.init_point, expiraEm: j.expiraEm,
         }));
       } catch { /* sem armazenamento: as páginas de retorno funcionam sem o resumo */ }
+      window.AconchegoMetricas?.registrarMetrica('iniciar_reserva', {
+        valor: j.valor ?? escolha.total,
+        periodo: nomeOpcao(escolha),
+        dias: escolha.n,
+        inicio: escolha.inicio,
+      });
       if (j.whatsapp) {
         // Pedido registrado: a data fica guardada e o cliente segue para o WhatsApp do salão
         resumo.textContent = `Pedido registrado! ${nomeOpcao(escolha)} fica guardado para você. Abrindo o WhatsApp…`;

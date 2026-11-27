@@ -358,7 +358,7 @@ test('CORS: rotas públicas aceitam o GitHub Pages, o painel não', async () => 
 });
 
 test('painel: preço vazio ou zero não é aceito', async () => {
-  const base = { precoDiaria: 500, precoFeriado: 400, precoPacote: 850, semana: Array(7).fill(true), antecedenciaDias: 1, mesesAFrente: 12, maxDias: 3 };
+  const base = { precoDiaria: 500, precoSemana: 400, precoFeriado: 500, precoPacote: 850, semana: Array(7).fill(true), antecedenciaDias: 1, mesesAFrente: 12, maxDias: 3 };
   assert.equal((await admin('POST', { acao: 'config', config: { ...base, precoDiaria: 0 } })).status, 400);
   assert.equal((await admin('POST', { acao: 'config', config: { ...base, precoPacote: '' } })).status, 400);
   assert.equal((await admin('POST', { acao: 'config', config: base })).status, 200);

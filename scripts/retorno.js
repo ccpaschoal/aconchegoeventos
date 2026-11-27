@@ -58,7 +58,10 @@
     tentativas += 1;
     try {
       const { r: resp, j } = await window.Aconchego.buscarJSON(`${window.Aconchego.api()}/status?id=${encodeURIComponent(id)}`, {}, 8000);
-      if (resp.ok && ['paga', 'confirmada'].includes(j.status)) return mostrar(PAGA);
+      if (resp.ok && ['paga', 'confirmada'].includes(j.status)) {
+        window.AconchegoMetricas?.registrarMetrica('reserva_paga', { id, valor: r?.valor, periodo: r?.periodo });
+        return mostrar(PAGA);
+      }
       if (resp.ok && j.status === 'conflito') return mostrar(CONFLITO);
     } catch { /* sem conexão: tenta de novo */ }
     if (tentativas < 6) setTimeout(conferir, 3000);

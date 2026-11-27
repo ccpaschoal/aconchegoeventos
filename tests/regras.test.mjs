@@ -2,12 +2,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { CONFIG_PADRAO as cfg, calcularPreco, feriadoAuto, montarDia, situacao, dataValida, somaDias } from '../worker/regras.js';
+import { CONFIG_PADRAO as cfg, precoDoDia, calcularPreco, feriadoAuto, montarDia, situacao, dataValida, somaDias } from '../worker/regras.js';
 import { assinaturaValida, iguais } from '../worker/servicos.js';
 
 const dia = (data, extra = {}) => {
   const feriado = !!feriadoAuto(data);
-  return { data, preco: feriado ? cfg.precoFeriado : cfg.precoDiaria, feriado, especial: false, ...extra };
+  return { data, preco: precoDoDia(data, feriado, cfg), feriado, especial: false, ...extra };
 };
 const preco = (datas, mods = {}) => calcularPreco(datas.map((d) => dia(d, mods[d])), cfg).total;
 
@@ -16,11 +16,18 @@ test('preços: diária, pacote de fim de semana e feriado', () => {
   assert.equal(preco(['2026-12-04', '2026-12-05']), 850);                     // sexta + sábado
   assert.equal(preco(['2026-12-05', '2026-12-06']), 850);                     // sábado + domingo
   assert.equal(preco(['2026-12-04', '2026-12-05', '2026-12-06']), 1350);      // sex + sáb + dom
-  assert.equal(preco(['2026-12-03', '2026-12-04']), 1000);                    // quinta + sexta: sem pacote
-  assert.equal(preco(['2026-12-25']), 400);                                   // Natal
-  assert.equal(preco(['2026-12-25', '2026-12-26']), 900);                     // feriado não entra no pacote
-  assert.equal(preco(['2026-12-04', '2026-12-05', '2026-12-06'], { '2026-12-06': { feriado: true, preco: 400 } }), 1250);
+  assert.equal(preco(['2026-12-03', '2026-12-04']), 900);                     // quinta + sexta: sem pacote
+  assert.equal(preco(['2026-12-25']), 500);                                   // Natal
+  assert.equal(preco(['2026-12-25', '2026-12-26']), 1000);                    // feriado não entra no pacote
+  assert.equal(preco(['2026-12-04', '2026-12-05', '2026-12-06'], { '2026-12-06': { feriado: true, preco: 500 } }), 1350);
   assert.equal(preco(['2026-12-04', '2026-12-05'], { '2026-12-05': { especial: true, preco: 700 } }), 1200); // preço especial não entra no pacote
+});
+
+test('segunda a quinta tem preço menor; feriado mantém o preço alto', () => {
+  for (const d of ['2026-11-30', '2026-12-01', '2026-12-02', '2026-12-03']) assert.equal(preco([d]), 400, d); // seg a qui
+  for (const d of ['2026-12-04', '2026-12-05', '2026-12-06']) assert.equal(preco([d]), 500, d);              // sex a dom
+  assert.equal(preco(['2027-02-08']), 500);                                    // segunda de Carnaval
+  assert.equal(montarDia('2026-12-01', { config: cfg, ajustes: {}, ocupacao: {}, hoje: '2026-11-27' }).preco, 400);
 });
 
 test('feriados automáticos (inclusive os que dependem da Páscoa)', () => {

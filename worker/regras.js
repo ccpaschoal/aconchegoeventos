@@ -1,7 +1,8 @@
 /* Aconchego · regras da agenda e dos preços (banco D1).
    Aluguel sempre por diária. Preço de cada dia:
    - preço especial da data (definido pela dona), senão
-   - feriado: precoFeriado (R$ 400), senão diária: precoDiaria (R$ 500)
+   - feriado: precoFeriado (R$ 500), mesmo caindo de segunda a quinta; senão
+   - segunda a quinta: precoSemana (R$ 400); sexta a domingo: precoDiaria (R$ 500)
    Pacote de fim de semana: sexta+sábado ou sábado+domingo seguidos = precoPacote (R$ 850),
    só quando nenhum dos dois é feriado nem tem preço especial. */
 
@@ -12,7 +13,8 @@ export const RE_ID = /^\d{4}-\d{2}-\d{2}_[a-f0-9]{12}$/;
 
 export const CONFIG_PADRAO = {
   precoDiaria: 500,
-  precoFeriado: 400,
+  precoSemana: 400,
+  precoFeriado: 500,
   precoPacote: 850,
   semana: [true, true, true, true, true, true, true], // domingo..sábado
   antecedenciaDias: 1,
@@ -89,13 +91,20 @@ export async function lerOcupacao(db, de, ate, agora) {
   return Object.fromEntries(results.map((r) => [r.data, r]));
 }
 
+/* Preço padrão de um dia, sem ajuste da dona */
+export function precoDoDia(data, feriado, config) {
+  if (feriado) return config.precoFeriado;
+  const s = diaSemana(data);
+  return s >= 1 && s <= 4 ? config.precoSemana : config.precoDiaria;
+}
+
 /* Estado de um dia. status: livre | pendente | reservado | fechado */
 export function montarDia(data, { config, ajustes, ocupacao, hoje, admin = false }) {
   const aj = ajustes[data] || {};
   const nomeFeriado = feriadoAuto(data);
   const feriado = aj.feriado === 1 ? true : aj.feriado === 0 ? false : !!nomeFeriado;
   const especial = Number.isFinite(aj.preco);
-  const preco = especial ? aj.preco : feriado ? config.precoFeriado : config.precoDiaria;
+  const preco = especial ? aj.preco : precoDoDia(data, feriado, config);
   let motivo = null;
   if (data < hoje) motivo = 'passado';
   else if (data < somaDias(hoje, config.antecedenciaDias)) motivo = 'antecedencia';

@@ -198,7 +198,7 @@
     const r = d.reserva;
     const seloTxt = r ? (SITUACAO[r.status] || r.status) : d.status === 'livre' ? 'Livre' : 'Fechado';
     const seloCls = r ? r.status : d.status === 'livre' ? 'livre' : '';
-    const valorAuto = d.feriado ? c.precoFeriado : c.precoDiaria;
+    const valorAuto = d.feriado ? c.precoFeriado : [1, 2, 3, 4].includes(diaSemana(d.data)) ? c.precoSemana : c.precoDiaria;
     form.innerHTML = `
       <p class="agenda-passo">${esc(dataLonga(d.data))}</p>
       <div class="adm-periodo-topo"><span class="selo is-${seloCls}">${esc(seloTxt)}</span>${d.feriado ? `<span class="selo">Feriado${d.nomeFeriado ? `: ${esc(d.nomeFeriado)}` : ''}</span>` : ''}</div>
@@ -390,7 +390,7 @@
 
   /* ── 3. Preços e regras ── */
   const cfgForm = $('#adm-config');
-  const CAMPOS = ['precoDiaria', 'precoFeriado', 'precoPacote', 'antecedenciaDias', 'mesesAFrente', 'maxDias'];
+  const CAMPOS = ['precoDiaria', 'precoSemana', 'precoFeriado', 'precoPacote', 'antecedenciaDias', 'mesesAFrente', 'maxDias'];
 
   function configForm() {
     const c = dados.config;

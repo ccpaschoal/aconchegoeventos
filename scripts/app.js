@@ -260,7 +260,9 @@
   window.addEventListener('wheel', (e) => {
     if (e.ctrlKey || e.metaKey) return; // zoom do navegador
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-    const dir = Math.sign(e.deltaY);
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : (e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY);
+    const dir = Math.sign(dy);
+    if (!dir) return;
     if (podeRolar(dir) && telas[atual].contains(e.target)) return;
     e.preventDefault();
     // Depois de trocar de tela, o trackpad continua mandando eventos por inércia: só aceita de novo após uma pausa
@@ -269,7 +271,7 @@
     ultimaRoda = agora;
     if (travado) return;
     if (esperaPausa) { if (pausa < 180) return; esperaPausa = false; }
-    soma += e.deltaY;
+    soma += dy;
     clearTimeout(timer);
     timer = setTimeout(() => { soma = 0; }, 200);
     if (Math.abs(soma) > 40) { soma = 0; go(atual + dir); }

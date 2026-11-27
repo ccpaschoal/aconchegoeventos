@@ -388,10 +388,10 @@ async function admin(req, env) {
 
   if (b.acao === 'config') {
     const c = b.config || {};
-    const precos = ['precoDiaria', 'precoFeriado', 'precoPacote'].map((k) => dinheiro(c[k]));
+    const precos = ['precoDiaria', 'precoFeriado', 'precoPacote', 'precoSemana'].map((k) => dinheiro(c[k]));
     if (precos.some((p) => p === null || p <= 0)) return json({ erro: 'Os preços precisam ser maiores que zero.' }, 400);
     const config = {
-      precoDiaria: precos[0], precoFeriado: precos[1], precoPacote: precos[2],
+      precoDiaria: precos[0], precoFeriado: precos[1], precoPacote: precos[2], precoSemana: precos[3],
       semana: Array.from({ length: 7 }, (_, i) => !!c.semana?.[i]),
       antecedenciaDias: inteiro(c.antecedenciaDias, 0, 365, CONFIG_PADRAO.antecedenciaDias),
       mesesAFrente: inteiro(c.mesesAFrente, 1, 24, CONFIG_PADRAO.mesesAFrente),

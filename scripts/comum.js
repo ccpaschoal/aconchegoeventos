@@ -27,9 +27,18 @@
   const SETA = { anterior: 'm15 18-6-6 6-6', proxima: 'm9 18 6-6-6-6' };
   const seta = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="${d}"/></svg>`;
 
-  // fetch com tempo máximo: conexão travada vira erro em vez de "carregando" para sempre
+  // fetch com tempo máximo: conexão travada vira erro em vez de "carregando" para sempre (compatível com Opera e navegadores antigos)
+  const timeoutSignal = (ms) => {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      return AbortSignal.timeout(ms);
+    }
+    const c = new AbortController();
+    setTimeout(() => c.abort(), ms);
+    return c.signal;
+  };
+
   const buscarJSON = async (url, opcoes = {}, ms = 15000) => {
-    const r = await fetch(url, { ...opcoes, signal: AbortSignal.timeout(ms) });
+    const r = await fetch(url, { ...opcoes, signal: timeoutSignal(ms) });
     const j = await r.json().catch(() => ({}));
     return { r, j };
   };

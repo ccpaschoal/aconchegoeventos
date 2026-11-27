@@ -68,9 +68,9 @@ Reserva online com pagamento pelo **Mercado Pago (Checkout Pro: Pix e cartão)**
 - A versão do GitHub Pages continua no ar e usa a mesma agenda (a API aceita chamadas de `ccpaschoal.github.io`).
 
 **Preços** (editáveis no admin, seção *Preços e regras*)
-- Diária: R$ 500 · diária em feriado: R$ 400
+- Diária de sexta a domingo: R$ 500 · segunda a quinta: R$ 400 · feriado (qualquer dia): R$ 500
 - Pacote fim de semana: sexta + sábado ou sábado + domingo = R$ 850, só se nenhum dos dois for feriado nem tiver preço especial
-- Exemplos: sex+sáb+dom = R$ 1.350 · sex+sáb + domingo feriado = R$ 850 + R$ 400
+- Exemplos: sex+sáb+dom = R$ 1.350 · sex+sáb + domingo feriado = R$ 850 + R$ 500
 - O cliente reserva de 1 até 3 dias seguidos (*Máximo de dias por reserva*).
 - Feriados automáticos: nacionais, Carnaval e Corpus Christi. Feriados de Goiás e de Trindade a dona marca no calendário do admin (*Feriado → É feriado*), assim como pode desmarcar qualquer um.
 

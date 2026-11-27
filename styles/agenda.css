@@ -184,9 +184,6 @@ main:has(> .adm-entrar:not([hidden])) { z-index: 200; }
 .adm-tabela td.acoes { display: flex; gap: 6px; flex-wrap: wrap; }
 .adm-filtro { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; justify-content: space-between; }
 
-/* Link discreto para o painel, no rodapé da última tela */
-.rodape .rodape-admin { flex-basis: 100%; font-weight: 600; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; opacity: .55; }
-.rodape .rodape-admin:hover, .rodape .rodape-admin:focus-visible { opacity: 1; }
 .adm-painel { gap: 20px; }
 
 /* botão com cara de link (ex.: "Tentar de novo" quando a agenda não carrega) */
